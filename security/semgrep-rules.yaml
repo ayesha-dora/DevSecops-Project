@@ -1,0 +1,45 @@
+rules:
+
+  # Rule 1: Detect hardcoded passwords
+  - id: hardcoded-password
+    patterns:
+      - pattern: password = "..."
+      - pattern: passwd = "..."
+      - pattern: secret = "..."
+    message: "Hardcoded password detected - use environment variables"
+    languages: [python]
+    severity: ERROR
+
+  # Rule 2: Detect SQL injection risk
+  - id: sql-injection-risk
+    patterns:
+      - pattern: |
+          $QUERY = "..." + $INPUT
+    message: "Possible SQL injection - use parameterized queries"
+    languages: [python]
+    severity: ERROR
+
+  # Rule 3: Detect debug mode in Flask
+  - id: flask-debug-mode
+    patterns:
+      - pattern: app.run(..., debug=True, ...)
+    message: "Flask debug mode enabled - disable in production"
+    languages: [python]
+    severity: WARNING
+
+  # Rule 4: Detect use of eval
+  - id: dangerous-eval
+    patterns:
+      - pattern: eval(...)
+    message: "Use of eval() is dangerous"
+    languages: [python]
+    severity: ERROR
+
+  # Rule 5: Detect shell injection
+  - id: shell-injection
+    patterns:
+      - pattern: os.system(...)
+      - pattern: subprocess.call(..., shell=True)
+    message: "Possible shell injection vulnerability"
+    languages: [python]
+    severity: ERROR

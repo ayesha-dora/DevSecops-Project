@@ -1,0 +1,13 @@
+# Bandit Security Configuration
+# Scans Python code for security vulnerabilities
+
+# Tests to skip (none - run all checks)
+skips: []
+
+# Severity levels to report: LOW, MEDIUM, HIGH
+# We report everything
+assert_used:
+  skips: []
+
+# Output format
+# Results saved to reports/bandit-report.json by Jenkins

@@ -1,0 +1,23 @@
+# Trivy Container Security Scanner Configuration
+
+# Severity levels to report
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+# Exit code when vulnerabilities found
+# 1 = fail pipeline on CRITICAL/HIGH
+exit-code: 1
+
+# Output format
+format: json
+
+# Ignore unfixed vulnerabilities
+ignore-unfixed: false
+
+# Scan types
+scan:
+  - vuln        # CVE vulnerabilities
+  - secret      # hardcoded secrets
+  - config      # misconfigurations
