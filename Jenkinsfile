@@ -2,45 +2,37 @@ pipeline {
     agent any
 
     environment {
-        APP_IMAGE = "ai-devsecops-app:${BUILD_NUMBER}"
+        APP_IMAGE  = "ai-devsecops-app:${BUILD_NUMBER}"
         SONAR_HOST = "http://sonarqube:9000"
-        APP_PORT = "5001"
-        PATH = "/var/jenkins_home/.local/bin:${env.PATH}"
+        APP_PORT   = "5001"
+        PATH       = "/var/jenkins_home/.local/bin:${env.PATH}"
         DOCKER_HOST = "tcp://host.docker.internal:2375"
     }
 
     stages {
 
-        // ─────────────────────────────────────
-        // STAGE 1: Checkout Code
-        // ─────────────────────────────────────
         stage('Checkout') {
             steps {
-                echo '📥 Checking out source code...'
+                echo 'Checking out source code...'
                 checkout scm
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 2: Install Dependencies
-        // ─────────────────────────────────────
         stage('Install Dependencies') {
             steps {
-                echo '📦 Installing Python dependencies...'
+                echo 'Installing Python dependencies...'
                 sh '''
                     pip install --break-system-packages -r app/requirements.txt
-                    pip install --break-system-packages bandit semgrep pytest pytest-cov
+                    pip install --break-system-packages bandit semgrep pytest pytest-cov safety
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 3: Run Unit Tests
-        // ─────────────────────────────────────
         stage('Unit Tests') {
             steps {
-                echo '🧪 Running unit tests...'
+                echo 'Running unit tests...'
                 sh '''
+                    mkdir -p reports
                     cd app
                     pytest tests/ -v \
                         --cov=. \
@@ -55,149 +47,124 @@ pipeline {
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 4: Bandit SAST Scan
-        // ─────────────────────────────────────
         stage('Bandit Security Scan') {
             steps {
-                echo '🔍 Running Bandit SAST security scan...'
+                echo 'Running Bandit security scan...'
                 sh '''
-                    bandit -r app/ \
+                    mkdir -p reports
+                    bandit -r app \
                         -f json \
                         -o reports/bandit-report.json \
-                        --severity-level medium \
-                        || true
-                    echo "Bandit scan complete - check reports/bandit-report.json"
+                        --severity-level medium || true
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 5: Semgrep SAST Scan
-        // ─────────────────────────────────────
         stage('Semgrep Security Scan') {
             steps {
-                echo '🔎 Running Semgrep security scan...'
+                echo 'Running Semgrep security scan...'
                 sh '''
-                    semgrep --config security/semgrep-rules.yaml app/ \
+                    mkdir -p reports
+                    semgrep --config security/semgrep-rules.yaml app \
                         --json \
-                        --output reports/semgrep-report.json \
-                        || true
-                    echo "Semgrep scan complete - check reports/semgrep-report.json"
+                        --output reports/semgrep-report.json || true
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 6: OWASP Dependency Check
-        // ─────────────────────────────────────
         stage('Dependency Check') {
             steps {
-                echo '📋 Running OWASP Dependency Check...'
+                echo 'Running dependency security check...'
                 sh '''
-                    pip install --break-system-packages safety
+                    mkdir -p reports
                     safety check \
                         -r app/requirements.txt \
-                        --json \
-                        > reports/dependency-check.json \
-                        || true
-                    echo "Dependency check complete"
+                        --json > reports/dependency-check.json || true
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 7: SonarQube Analysis
-        // ─────────────────────────────────────
         stage('SonarQube Analysis') {
             steps {
-                echo '📊 Running SonarQube code quality analysis...'
+                echo 'Running SonarQube analysis...'
                 script {
                     def scannerHome = tool 'SonarScanner'
+
                     withSonarQubeEnv('SonarQube') {
                         sh """
                             ${scannerHome}/bin/sonar-scanner \
-                                -Dsonar.projectKey=ai-devsecops-pipeline \
-                                -Dsonar.sources=app \
-                                -Dsonar.host.url=${SONAR_HOST} \
-                                -Dsonar.python.coverage.reportPaths=reports/coverage.xml \
-                                || echo "SonarQube scan attempted"
+                              -Dsonar.projectKey=ai-devsecops-pipeline \
+                              -Dsonar.sources=app \
+                              -Dsonar.host.url=${SONAR_HOST} \
+                              -Dsonar.python.coverage.reportPaths=reports/coverage.xml
                         """
                     }
                 }
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 8: AI Code Review (LangChain)
-        // ─────────────────────────────────────
         stage('AI Code Review') {
             steps {
-                echo '🤖 Running AI-powered code review with LangChain...'
+                echo 'Running AI code review...'
                 sh '''
-                    pip install --break-system-packages langchain langchain-community ollama -q
-                    python ai-agents/code_reviewer.py || echo "AI review completed"
+                    pip install --break-system-packages \
+                        langchain \
+                        langchain-community \
+                        ollama -q
+
+                    python ai-agents/code_reviewer.py || true
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 9: HuggingFace Vulnerability Analysis
-        // ─────────────────────────────────────
         stage('HuggingFace Analysis') {
             steps {
-                echo '🧠 Running HuggingFace vulnerability classification...'
+                echo 'Running HuggingFace analysis...'
                 sh '''
                     pip install --break-system-packages transformers -q
-                    pip install --break-system-packages torch --index-url https://download.pytorch.org/whl/cpu -q
-                    python ai-agents/hf_code_analyzer.py || echo "HF analysis completed"
+                    pip install --break-system-packages \
+                        torch \
+                        --index-url https://download.pytorch.org/whl/cpu -q
+
+                    python ai-agents/hf_code_analyzer.py || true
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 10: Build Docker Image
-        // ─────────────────────────────────────
         stage('Build Docker Image') {
             steps {
-                echo '🐳 Building Docker image...'
+                echo 'Building Docker image...'
                 sh '''
                     docker build -t ${APP_IMAGE} ./app
-                    echo "Docker image built: ${APP_IMAGE}"
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 11: Trivy Container Scan
-        // ─────────────────────────────────────
         stage('Trivy Container Scan') {
             steps {
-                echo '🔒 Scanning Docker image with Trivy...'
+                echo 'Running Trivy scan...'
                 sh '''
                     mkdir -p reports
+
                     docker run --rm \
-                        -e DOCKER_HOST=tcp://host.docker.internal:2375 \
+                        -e DOCKER_HOST=${DOCKER_HOST} \
                         -v trivy-cache:/root/.cache/trivy \
                         aquasec/trivy:latest image \
                         --timeout 30m \
                         --format json \
                         --severity HIGH,CRITICAL \
                         ${APP_IMAGE} > reports/trivy-report.json || true
-                    echo "Trivy scan complete"
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 12: Deploy Application
-        // ─────────────────────────────────────
         stage('Deploy') {
             steps {
-                echo '🚀 Deploying application locally...'
+                echo 'Deploying application...'
                 sh '''
                     docker stop sample-app || true
                     docker rm sample-app || true
+
                     docker run -d \
                         --name sample-app \
                         --network ai-devsecops-pipeline_devsecops \
@@ -207,81 +174,74 @@ pipeline {
                         --name sample-app \
                         -p ${APP_PORT}:5001 \
                         ${APP_IMAGE}
-                    sleep 5
-                    echo "App deployed at http://localhost:${APP_PORT}"
+
+                    sleep 10
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 13: OWASP ZAP DAST Scan
-        // ─────────────────────────────────────
         stage('OWASP ZAP DAST Scan') {
             steps {
-                echo '⚡ Running OWASP ZAP dynamic security scan...'
+                echo 'Running OWASP ZAP scan...'
                 sh '''
+                    mkdir -p reports
+
                     docker run --rm \
+                        --network host \
+                        -v $(pwd)/reports:/zap/wrk \
                         zaproxy/zap-stable:latest \
                         zap-baseline.py \
                         -t http://host.docker.internal:${APP_PORT} \
-                        || true
-                    echo "ZAP scan complete"
+                        -J zap-report.json || true
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 14: AI Vulnerability Analysis
-        // ─────────────────────────────────────
         stage('AI Vulnerability Analysis') {
             steps {
-                echo '🤖 AI analyzing all security scan results...'
+                echo 'Running AI vulnerability analysis...'
                 sh '''
-                    python ai-agents/hf_code_analyzer.py || echo "AI vuln analysis done"
+                    python ai-agents/hf_code_analyzer.py || true
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 15: LlamaIndex Documentation
-        // ─────────────────────────────────────
         stage('AI Documentation') {
             steps {
-                echo '📝 Generating AI documentation with LlamaIndex...'
+                echo 'Generating documentation...'
                 sh '''
-                    pip install --break-system-packages llama-index llama-index-llms-ollama -q
-                    python ai-agents/code_indexer.py || echo "Docs generated"
+                    pip install --break-system-packages \
+                        llama-index \
+                        llama-index-llms-ollama -q
+
+                    python ai-agents/code_indexer.py || true
                 '''
             }
         }
 
-        // ─────────────────────────────────────
-        // STAGE 16: MLflow Log Results
-        // ─────────────────────────────────────
         stage('MLflow Tracking') {
             steps {
-                echo '📊 Logging all AI results to MLflow...'
+                echo 'Logging results to MLflow...'
                 sh '''
                     pip install --break-system-packages mlflow -q
-                    python ai-agents/mlflow_logger.py || echo "MLflow logging done"
+                    python ai-agents/mlflow_logger.py || true
                 '''
             }
         }
     }
 
-    // ─────────────────────────────────────
-    // POST: Always publish reports
-    // ─────────────────────────────────────
     post {
         always {
-            echo '📋 Pipeline complete - archiving reports...'
+            echo 'Archiving reports...'
             archiveArtifacts artifacts: 'reports/**/*', allowEmptyArchive: true
         }
+
         success {
-            echo '✅ Pipeline SUCCESS - all stages passed!'
+            echo 'Pipeline completed successfully.'
         }
+
         failure {
-            echo '❌ Pipeline FAILED - check stage logs above'
+            echo 'Pipeline failed. Check the logs.'
         }
     }
 }
