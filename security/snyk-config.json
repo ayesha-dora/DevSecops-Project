@@ -1,0 +1,14 @@
+{
+  "name": "snyk-config",
+  "packageManager": "pip",
+  "targetFile": "app/requirements.txt",
+  "monitor": true,
+  "severityThreshold": "high",
+  "failOn": ["high", "critical"],
+  "snykArgs": [
+    "--severity-threshold=high",
+    "--file=app/requirements.txt",
+    "--json"
+  ],
+  "notes": "Run in CI as: snyk test --severity-threshold=high --file=app/requirements.txt --json ; fail the build if any issue severity >= high"
+}
