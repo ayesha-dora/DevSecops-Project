@@ -306,15 +306,3 @@ Suggested PR reviewers: security, infra, and platform owners. Add labels like `s
 
 ---
 
-## License
-
-This repository is provided under the **MIT License**. See LICENSE for details.
-
----
-
-If you want, I can:
-- Create README.md in the repo directly and open a PR,
-- Generate additional docs (Contributing.md, SECURITY.md, or Architecture diagram),
-- Expand the “Regulatory Alignment” section into a compliance checklist for ISO/ NIST / GDPR.
-
-Which would you like next?
