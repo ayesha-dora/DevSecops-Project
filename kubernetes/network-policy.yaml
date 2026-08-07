@@ -3,8 +3,6 @@ kind: NetworkPolicy
 metadata:
   name: devsecops-app-zero-trust
   namespace: default
-  labels:
-    app: devsecops-app
 spec:
   podSelector:
     matchLabels:
@@ -13,29 +11,28 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from Ingress controller namespace (ingress-nginx)
+    # Allow traffic from the ingress controller namespace (label it as app.kubernetes.io/name=ingress-nginx)
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: "ingress-nginx"
+              app.kubernetes.io/name: ingress-nginx
       ports:
         - protocol: TCP
           port: 5000
-    # Allow traffic from Prometheus (monitoring) namespace for scraping/alerts
+    # Allow traffic from Prometheus/monitoring namespace (label it as app.kubernetes.io/name=monitoring)
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: "monitoring"
+              app.kubernetes.io/name: monitoring
       ports:
         - protocol: TCP
           port: 5000
   egress:
-    # Allow all egress for now (if you want stricter rules, narrow this list)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
       ports:
-        - protocol: TCP
+        - protocol: UDP
           port: 53
         - protocol: TCP
           port: 80
