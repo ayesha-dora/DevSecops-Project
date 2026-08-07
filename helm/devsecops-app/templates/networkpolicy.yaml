@@ -1,0 +1,34 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "devsecops-app.fullname" . | trunc 63 | trimSuffix "-" }}-np
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ include "devsecops-app.name" . }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+  {{- range $idx, $ns := .Values.networkPolicy.ingressNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: "{{ $ns }}"
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.service.targetPort }}
+  {{- end }}
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+{{- end }}

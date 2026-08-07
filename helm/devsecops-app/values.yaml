@@ -1,0 +1,55 @@
+replicaCount: 2
+
+image:
+  repository: "ayeshaakram786/devsecops-app"
+  tag: "v1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+probes:
+  path: /health
+  port: 5000
+  liveness:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+ingress:
+  enabled: true
+  className: "nginx"
+  tls:
+    - secretName: devsecops-tls
+      hosts:
+        - devsecops.local
+  hosts:
+    - host: devsecops.local
+      paths:
+        - path: /
+
+networkPolicy:
+  enabled: true
+  ingressNamespaces:
+    - ingress-nginx
+    - monitoring
