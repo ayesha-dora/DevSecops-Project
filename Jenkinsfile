@@ -1,12 +1,17 @@
 pipeline {
     agent any
 
+    parameters {
+        booleanParam(name: 'ENFORCE_SECURITY', defaultValue: false, description: 'Fail the pipeline on high/critical security issues when true')
+    }
+
     environment {
         APP_IMAGE  = "ai-devsecops-app:${BUILD_NUMBER}"
         SONAR_HOST = "http://sonarqube:9000"
         APP_PORT   = "5001"
         PATH       = "/var/jenkins_home/.local/bin:${env.PATH}"
         DOCKER_HOST = "tcp://host.docker.internal:2375"
+        ENFORCE_SECURITY = "${params.ENFORCE_SECURITY}"
     }
 
     stages {
@@ -34,7 +39,16 @@ pipeline {
                 sh '''
                     mkdir -p reports || true
                     # Snyk (requires SNYK_TOKEN in environment if using monitor/test with auth)
-                    snyk test --severity-threshold=high --file=app/requirements.txt --json > reports/snyk-report.json || true
+                    snyk test --file=app/requirements.txt --package-manager=pip --json > reports/snyk-report.json || true
+
+                    # Optional enforcement: fail if high/critical found when ENFORCE_SECURITY=true
+                    if [ "${ENFORCE_SECURITY}" = "true" ]; then
+                      if command -v jq >/dev/null 2>&1 && [ -f reports/snyk-report.json ]; then
+                        if jq '.vulnerabilities[]? | select(.severity=="high" or .severity=="critical")' reports/snyk-report.json | grep -q .; then
+                          echo "Snyk found high/critical issues"; exit 1
+                        fi
+                      fi
+                    fi
 
                     # OWASP Dependency-Check (uses bundled script in repo if available)
                     if [ -x security/dependency-check.sh ]; then
