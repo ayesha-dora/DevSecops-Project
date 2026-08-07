@@ -3,19 +3,14 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-
-  # Monitor Prometheus itself
-  - job_name: 'prometheus'
+  - job_name: 'devsecops-app'
+    metrics_path: /metrics
+    scrape_interval: 15s
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ['devsecops-app:5000']
 
-  # Monitor Jenkins
   - job_name: 'jenkins'
-    metrics_path: '/prometheus'
+    metrics_path: /metrics
+    scrape_interval: 15s
     static_configs:
       - targets: ['jenkins:8080']
-
-  # Monitor Docker containers
-  - job_name: 'docker'
-    static_configs:
-      - targets: ['host.docker.internal:9323']
