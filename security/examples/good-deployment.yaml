@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devsecops-app-good
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devsecops-app-good
+  template:
+    metadata:
+      labels:
+        app: devsecops-app-good
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: devsecops-app
+          image: myregistry/devsecops-app:1.0.0
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
