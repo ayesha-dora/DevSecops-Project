@@ -182,17 +182,11 @@ pipeline {
 
         stage('OWASP ZAP DAST Scan') {
             steps {
-                echo 'Running OWASP ZAP scan...'
+                echo 'Running OWASP ZAP scan via zap-runner...'
                 sh '''
                     mkdir -p reports
-
-                    docker run --rm \
-                        --network host \
-                        -v $(pwd)/reports:/zap/wrk \
-                        zaproxy/zap-stable:latest \
-                        zap-baseline.py \
-                        -t http://host.docker.internal:${APP_PORT} \
-                        -J zap-report.json || true
+                    chmod +x security/zap-runner.sh || true
+                    ./security/zap-runner.sh
                 '''
             }
         }

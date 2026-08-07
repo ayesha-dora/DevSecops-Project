@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devsecops-app-bad
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devsecops-app-bad
+  template:
+    metadata:
+      labels:
+        app: devsecops-app-bad
+    spec:
+      containers:
+        - name: devsecops-app
+          image: myregistry/devsecops-app:latest
+          ports:
+            - containerPort: 5000
+          # Missing resources
+          # Missing securityContext.runAsNonRoot
