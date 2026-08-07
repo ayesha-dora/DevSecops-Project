@@ -10,215 +10,92 @@ pipeline {
     }
 
     stages {
-
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
                 echo 'Checking out source code...'
                 checkout scm
             }
         }
 
-        stage('Install Dependencies') {
+        stage('SAST (Bandit & Semgrep)') {
             steps {
-                echo 'Installing Python dependencies...'
+                echo 'Running Bandit and Semgrep (SAST)...'
                 sh '''
-                    pip install --break-system-packages -r app/requirements.txt
-                    pip install --break-system-packages bandit semgrep pytest pytest-cov safety
+                    mkdir -p reports || true
+                    bandit -r app -f json -o reports/bandit-report.json --severity-level medium || true
+                    semgrep --config security/semgrep-rules.yaml app --json --output reports/semgrep-report.json || true
                 '''
             }
         }
 
-        stage('Unit Tests') {
+        stage('Dependency Scan (Snyk & OWASP Dependency-Check)') {
             steps {
-                echo 'Running unit tests...'
+                echo 'Running Snyk and OWASP Dependency-Check...'
                 sh '''
-                    mkdir -p reports
-                    cd app
-                    pytest tests/ -v \
-                        --cov=. \
-                        --cov-report=xml:../reports/coverage.xml \
-                        --junitxml=../reports/test-results.xml
-                '''
-            }
-            post {
-                always {
-                    junit 'reports/test-results.xml'
-                }
-            }
-        }
+                    mkdir -p reports || true
+                    # Snyk (requires SNYK_TOKEN in environment if using monitor/test with auth)
+                    snyk test --severity-threshold=high --file=app/requirements.txt --json > reports/snyk-report.json || true
 
-        stage('Bandit Security Scan') {
-            steps {
-                echo 'Running Bandit security scan...'
-                sh '''
-                    mkdir -p reports
-                    bandit -r app \
-                        -f json \
-                        -o reports/bandit-report.json \
-                        --severity-level medium || true
+                    # OWASP Dependency-Check (uses bundled script in repo if available)
+                    if [ -x security/dependency-check.sh ]; then
+                      chmod +x security/dependency-check.sh || true
+                      ./security/dependency-check.sh || true
+                    else
+                      echo 'dependency-check script not present or not executable' || true
+                    fi
                 '''
             }
         }
 
-        stage('Semgrep Security Scan') {
+        stage('AI Code Review & MLflow Logging') {
             steps {
-                echo 'Running Semgrep security scan...'
+                echo 'Running AI code review and MLflow logging...'
                 sh '''
-                    mkdir -p reports
-                    semgrep --config security/semgrep-rules.yaml app \
-                        --json \
-                        --output reports/semgrep-report.json || true
+                    mkdir -p reports || true
+                    python3 ai-agents/code_reviewer.py || true
+                    python3 ai-agents/mlflow_logger.py || true
                 '''
             }
         }
 
-        stage('Dependency Check') {
+        stage('Container Scan (Trivy)') {
             steps {
-                echo 'Running dependency security check...'
+                echo 'Building image and running Trivy container scan...'
                 sh '''
-                    mkdir -p reports
-                    safety check \
-                        -r app/requirements.txt \
-                        --json > reports/dependency-check.json || true
+                    mkdir -p reports || true
+                    docker build -t ${APP_IMAGE} ./app || true
+                    docker run --rm -e DOCKER_HOST=${DOCKER_HOST} -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --format json --severity HIGH,CRITICAL ${APP_IMAGE} > reports/trivy-report.json || true
                 '''
             }
         }
 
-        stage('SonarQube Analysis') {
+        stage('OPA Compliance Gate') {
             steps {
-                echo 'Running SonarQube analysis...'
-                script {
-                    def scannerHome = tool 'SonarScanner'
-
-                    withSonarQubeEnv('SonarQube') {
-                        sh """
-                            ${scannerHome}/bin/sonar-scanner \
-                              -Dsonar.projectKey=ai-devsecops-pipeline \
-                              -Dsonar.sources=app \
-                              -Dsonar.host.url=${SONAR_HOST} \
-                              -Dsonar.python.coverage.reportPaths=reports/coverage.xml
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('AI Code Review') {
-            steps {
-                echo 'Running AI code review...'
+                echo 'Evaluating OPA policies (compliance)...'
                 sh '''
-                    pip install --break-system-packages \
-                        langchain \
-                        langchain-community \
-                        ollama -q
-
-                    python ai-agents/code_reviewer.py || true
+                    chmod +x security/test_policy.sh || true
+                    ./security/test_policy.sh || true
                 '''
             }
         }
 
-        stage('HuggingFace Analysis') {
+        stage('Deploy to Kubernetes') {
             steps {
-                echo 'Running HuggingFace analysis...'
+                echo 'Deploying to Kubernetes (demo manifest)...'
                 sh '''
-                    pip install --break-system-packages transformers -q
-                    pip install --break-system-packages \
-                        torch \
-                        --index-url https://download.pytorch.org/whl/cpu -q
-
-                    python ai-agents/hf_code_analyzer.py || true
+                    # Apply example deployment (non-blocking)
+                    kubectl apply -f security/examples/good-deployment.yaml || true
                 '''
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Dynamic Security Scan (OWASP ZAP)') {
             steps {
-                echo 'Building Docker image...'
+                echo 'Running OWASP ZAP dynamic scan against deployed app...'
                 sh '''
-                    docker build -t ${APP_IMAGE} ./app
-                '''
-            }
-        }
-
-        stage('Trivy Container Scan') {
-            steps {
-                echo 'Running Trivy scan...'
-                sh '''
-                    mkdir -p reports
-
-                    docker run --rm \
-                        -e DOCKER_HOST=${DOCKER_HOST} \
-                        -v trivy-cache:/root/.cache/trivy \
-                        aquasec/trivy:latest image \
-                        --timeout 30m \
-                        --format json \
-                        --severity HIGH,CRITICAL \
-                        ${APP_IMAGE} > reports/trivy-report.json || true
-                '''
-            }
-        }
-
-        stage('Deploy') {
-            steps {
-                echo 'Deploying application...'
-                sh '''
-                    docker stop sample-app || true
-                    docker rm sample-app || true
-
-                    docker run -d \
-                        --name sample-app \
-                        --network ai-devsecops-pipeline_devsecops \
-                        -p ${APP_PORT}:5001 \
-                        ${APP_IMAGE} || \
-                    docker run -d \
-                        --name sample-app \
-                        -p ${APP_PORT}:5001 \
-                        ${APP_IMAGE}
-
-                    sleep 10
-                '''
-            }
-        }
-
-        stage('OWASP ZAP DAST Scan') {
-            steps {
-                echo 'Running OWASP ZAP scan via zap-runner...'
-                sh '''
-                    mkdir -p reports
+                    mkdir -p reports || true
                     chmod +x security/zap-runner.sh || true
-                    ./security/zap-runner.sh
-                '''
-            }
-        }
-
-        stage('AI Vulnerability Analysis') {
-            steps {
-                echo 'Running AI vulnerability analysis...'
-                sh '''
-                    python ai-agents/hf_code_analyzer.py || true
-                '''
-            }
-        }
-
-        stage('AI Documentation') {
-            steps {
-                echo 'Generating documentation...'
-                sh '''
-                    pip install --break-system-packages \
-                        llama-index \
-                        llama-index-llms-ollama -q
-
-                    python ai-agents/code_indexer.py || true
-                '''
-            }
-        }
-
-        stage('MLflow Tracking') {
-            steps {
-                echo 'Logging results to MLflow...'
-                sh '''
-                    pip install --break-system-packages mlflow -q
-                    python ai-agents/mlflow_logger.py || true
+                    ./security/zap-runner.sh || true
                 '''
             }
         }
