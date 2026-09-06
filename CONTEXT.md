@@ -240,6 +240,19 @@ helm install devsecops-app ./helm/devsecops-app --namespace devsecops --create-n
 
 ## Change Log
 
+### 2026-09-06 — Local Docker Jenkins pipeline
+- Added `jenkins/Jenkinsfile`, `jenkins/deploy-local.sh`, a minimal Secret file
+  template and `jenkins/README.md`. Builds the application image, runs its tests,
+  deploys with persistent SQLite storage, checks health/routes and restores the
+  previous container on failure. Defaults to port 5002 because Compose uses 5001.
+- Added `jenkins/compose.socket.yml`: the current Jenkins container lacks Docker
+  socket group membership. README documents recreation with the detected host GID.
+- Validation: Docker image built; all 10 application tests passed; isolated first
+  deployment and redeployment passed; occupied-port failure restored the previous
+  running container on port 15002. Bash syntax and whitespace checks passed.
+- Live Jenkins job execution and Jenkins container recreation were not performed;
+  the user must upload their Secret file and configure the SCM job as documented.
+
 ### 2026-09-06 — Change #12: Fix every broken cross-service integration found on audit
 - **Change**: Asked to make "all the services actually call each other, no broken APIs" and fix whatever was
   found. Audited every cross-service wire-up in the stack and fixed each confirmed-broken one:

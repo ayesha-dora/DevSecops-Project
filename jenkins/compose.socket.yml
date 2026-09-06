@@ -1,0 +1,5 @@
+# Use with the root Compose file; see jenkins/README.md.
+services:
+  jenkins:
+    group_add:
+      - "${DOCKER_SOCKET_GID:?Set DOCKER_SOCKET_GID to the host Docker socket group ID}"

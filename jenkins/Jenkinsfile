@@ -1,0 +1,58 @@
+pipeline {
+    agent any
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timestamps()
+        timeout(time: 20, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '15'))
+    }
+    parameters {
+        string(name: 'ENV_CREDENTIALS_ID', defaultValue: 'devsecops-local-env', description: 'Jenkins Secret file containing APP_API_KEY and LOG_LEVEL')
+        string(name: 'APP_PORT', defaultValue: '5002', description: 'Docker host port for the app (5001 is used by the Compose app)')
+    }
+    environment {
+        DOCKER_HOST = 'unix:///var/run/docker.sock'
+        APP_CONTAINER = 'devsecops-local-app'
+        APP_VOLUME = 'devsecops-local-data'
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.APP_IMAGE = "devsecops-local-app:${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(12)}"
+                }
+            }
+        }
+        stage('Preflight') {
+            steps {
+                sh 'docker info >/dev/null'
+                sh 'bash -n jenkins/deploy-local.sh'
+            }
+        }
+        stage('Build image') {
+            steps { sh 'docker build --tag "$APP_IMAGE" --file app/Dockerfile .' }
+        }
+        stage('Unit tests') {
+            steps {
+                sh '''
+                    docker run --rm --network none \
+                      -e APP_DB=/tmp/test-users.db -e APP_API_KEY=ci-test-only \
+                      "$APP_IMAGE" python -m pytest tests/ -v
+                '''
+            }
+        }
+        stage('Deploy locally and verify') {
+            steps {
+                withCredentials([file(credentialsId: params.ENV_CREDENTIALS_ID, variable: 'APP_ENV_FILE')]) {
+                    sh 'bash jenkins/deploy-local.sh'
+                }
+            }
+        }
+    }
+    post {
+        success { echo "App deployed: http://<Docker-host>:${params.APP_PORT}/dashboard" }
+        failure { echo 'Build/deployment failed. Inspect the failed stage; deployment failures attempt to restore the previous container.' }
+    }
+}

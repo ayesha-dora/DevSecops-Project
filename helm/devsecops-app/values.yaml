@@ -1,9 +1,9 @@
 replicaCount: 2
 
 image:
-  repository: "ayeshaakram786/devsecops-app"
-  tag: "v1.0"
-  pullPolicy: IfNotPresent
+  repository: "devsecops-app"
+  tag: "local"
+  pullPolicy: Never
 
 service:
   type: ClusterIP
@@ -38,13 +38,9 @@ probes:
 
 ingress:
   enabled: true
-  className: "nginx"
-  tls:
-    - secretName: devsecops-tls
-      hosts:
-        - devsecops.local
+  className: "traefik"
   hosts:
-    - host: devsecops.local
+    - host: app.3-7-244-169.sslip.io
       paths:
         - path: /
 

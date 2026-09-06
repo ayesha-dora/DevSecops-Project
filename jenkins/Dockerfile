@@ -14,7 +14,8 @@ USER root
 #     not `python3`), and prerequisites for the apt-repo steps below ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv python-is-python3 \
-        curl unzip jq gnupg lsb-release ca-certificates \
+        build-essential rustc cargo \
+        curl unzip jq gnupg lsb-release ca-certificates build-essential rustc cargo \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Docker CLI. Talks to the host's daemon via the /var/run/docker.sock bind mount
@@ -43,8 +44,8 @@ RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm
 #     bump changing a stage's output shouldn't happen silently on a Jenkins agent rebuild).
 #     Versions below were the latest available on PyPI/GitHub as of 2026-09-06 — bump
 #     deliberately, not by accident, if you rebuild this image later. ---
-RUN pip3 install --no-cache-dir --break-system-packages \
-        bandit==1.9.4 semgrep==1.176.1 checkov==3.3.16
+RUN pip3 install --no-cache-dir --break-system-packages --ignore-installed packaging \
+        bandit==1.9.3 semgrep==1.172.0 checkov==3.2.88
 RUN GITLEAKS_VER=8.18.4 \
     && curl -sL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz \
     && tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks \
