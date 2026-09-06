@@ -1,0 +1,15 @@
+# Grafana dashboard provisioning (new — see CONTEXT.md Change #12). Points Grafana at
+# ./files/*.json (this directory, mounted alongside this config — see docker-compose.yml) so the
+# dashboard is present automatically instead of requiring a manual Dashboards -> Import click.
+apiVersion: 1
+
+providers:
+  - name: 'DevSecOps Dashboards'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/files

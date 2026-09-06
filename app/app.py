@@ -11,13 +11,13 @@ Features:
 - Secure error handling
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import sqlite3
 import os
 import logging
 import re
 import time
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram
 from collections import defaultdict
 
 DB_PATH = os.environ.get('APP_DB', '/tmp/users.db')
@@ -32,6 +32,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# Prometheus metrics. Previously /metrics only exposed the process/platform defaults that
+# prometheus_client registers automatically — no request-level metric existed at all, so
+# monitoring/prometheus.yml scraped this endpoint successfully but Grafana's "HTTP Requests Rate"
+# panel (which queries rate(http_requests_total[1m])) had nothing to render and was always empty.
+# "handler" is the label name because the dashboard's legendFormat is already "{{handler}}".
+REQUEST_COUNT = Counter(
+    'http_requests_total', 'Total HTTP requests received', ['method', 'handler', 'status']
+)
+REQUEST_LATENCY = Histogram(
+    'http_request_duration_seconds', 'HTTP request latency in seconds', ['method', 'handler']
+)
 
 # Simple in-process rate limiter (limitation: single-process only)
 class RateLimiter:
@@ -64,7 +76,10 @@ def get_client_id():
 def check_rate_limit(client_id):
     """Check if client is within rate limits"""
     if not rate_limiter.is_allowed(client_id):
-        logger.warning(f"Rate limit exceeded for client: {client_id}")
+        # Tagged "SECURITY" to match the Loki query in monitoring/grafana-dashboard.json's
+        # "Application Security Logs" panel ({job="devsecops-app"} |= "SECURITY") — previously
+        # nothing the app logged contained that string, so the panel was wired up but always empty.
+        logger.warning(f"SECURITY | event=rate_limit_exceeded | client={client_id}")
         return False
     return True
 
@@ -90,13 +105,17 @@ def check_api_key():
     """Verify API key on write operations"""
     key = request.headers.get('X-API-Key') or request.args.get('api_key')
     if key != API_KEY:
-        logger.warning(f"API key validation failed: {request.path}")
+        logger.warning(f"SECURITY | event=api_key_invalid | path={request.path}")
         return False
     return True
 
 def log_request(method, path, status, latency_ms):
-    """Log structured request information"""
+    """Log structured request information and record it as a Prometheus metric. Every route
+    already calls this once at the end, so it's the one place that can feed /metrics without
+    touching each route individually."""
     logger.info(f"REQUEST | method={method} | path={path} | status={status} | latency_ms={latency_ms:.2f}")
+    REQUEST_COUNT.labels(method=method, handler=path, status=str(status)).inc()
+    REQUEST_LATENCY.labels(method=method, handler=path).observe(latency_ms / 1000.0)
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -237,6 +256,20 @@ def search():
         latency = (time.time() - start) * 1000
         log_request('GET', '/search', 500, latency)
         return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route('/dashboard')
+def dashboard():
+    """Human-facing landing page: live health badge, an interactive search/list/add-user demo
+    against the real API below, and links out to the rest of the pipeline's tooling (Jenkins,
+    SonarQube, Grafana, MLflow) on this same host. Purely presentational — every action it takes
+    goes through the existing, already-tested API routes; it adds no new backend behavior.
+    Share this URL, not the bare '/', when demoing the deployment."""
+    start = time.time()
+    result = render_template('dashboard.html')
+    latency = (time.time() - start) * 1000
+    log_request('GET', '/dashboard', 200, latency)
+    return result
 
 
 @app.route('/metrics')

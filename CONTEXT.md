@@ -99,8 +99,12 @@ role — cluster itself assumed pre-existing, not provisioned here).
 ./helm/devsecops-app --namespace devsecops --create-namespace`. See README.md "Setup & Execution Guide".
 
 ## Testing
-`app/tests/test_app.py`: 12 pytest cases, all passing, 97% line coverage of `app.py` (verified in this sandbox
-— see `docs/BASELINE.md` and `docs/FINAL_AUDIT.md` for the exact commands and output).
+`app/tests/test_app.py`: 10 pytest cases, all passing, 85% line coverage of `app.py` (verified in this sandbox
+2026-09-06 — see Changes #11–#12 below; the remaining uncovered lines are pre-existing exception/rate-limit
+branches, not the `/dashboard` route or the new metrics code, both of which are covered). Earlier engagements
+in this file's history claimed "12 pytest cases, 97% coverage" for an earlier state of the suite — see
+`docs/BASELINE.md` and `docs/FINAL_AUDIT.md` for what was true then; this line reflects the current,
+re-verified count.
 
 ## Completed Work
 See "Change Log" below for the itemized, dated list. Summary: fixed a broken dependency pin that blocked all
@@ -181,7 +185,9 @@ python3 ai-agents/code_reviewer.py / hf_code_analyzer.py / code_indexer.py / mlf
 ```
 
 ## Test Results
-12/12 pytest cases passing, 97% line coverage of `app.py`. Bandit: 2 medium findings, both documented/accepted.
+10/10 pytest cases passing, 85% line coverage of `app.py` (re-verified 2026-09-06, see Changes #11–#12 —
+supersedes the "12/12, 97%" figure below, which was this file's stale claim before two failing tests were
+found and fixed). Bandit: 2 medium findings, both documented/accepted.
 Semgrep: 0 findings. flake8: 0 findings. checkov: Terraform 48/54 (6 documented accepted gaps), Kubernetes
 93/94 (1 documented accepted gap). All four AI scripts run to completion via their fallback paths without
 raising. See `docs/BASELINE.md` and `docs/FINAL_AUDIT.md` for full detail.
@@ -233,6 +239,105 @@ helm install devsecops-app ./helm/devsecops-app --namespace devsecops --create-n
 ---
 
 ## Change Log
+
+### 2026-09-06 — Change #12: Fix every broken cross-service integration found on audit
+- **Change**: Asked to make "all the services actually call each other, no broken APIs" and fix whatever was
+  found. Audited every cross-service wire-up in the stack and fixed each confirmed-broken one:
+  1. **Grafana "HTTP Requests Rate" panel was always empty.** `/metrics` exposed only
+     `prometheus_client`'s automatic process/platform defaults — no app ever registered
+     `http_requests_total`, which is exactly what that panel queries. Added a `Counter` and a
+     `Histogram` in `app/app.py`, recorded from the single `log_request()` call site every route
+     already makes. Label name is `handler` to match the dashboard's existing `{{handler}}`
+     legendFormat rather than editing the dashboard to match new code.
+  2. **Grafana "Application Security Logs" panel was always empty.** Its Loki query filters
+     `|= "SECURITY"`, but nothing the app logged ever contained that string. Tagged the two
+     actually-security-relevant log lines (rate-limit exceeded, invalid API key) with a
+     `SECURITY |` prefix — real instrumentation, not a query rewritten to match nothing.
+  3. **That same panel's `{job="devsecops-app"}` label match would never have hit even with #2
+     fixed.** `monitoring/promtail-config.yaml` copied Docker's `__meta_docker_container_name`
+     straight into the `job` label — but Docker's own container-name metadata always has a
+     leading `/` (a well-known Promtail/Docker gotcha), so the real value would have been
+     `/devsecops-app`. Added the regex relabel that strips it.
+  4. **Grafana had zero datasources and no dashboard until someone clicked through the UI by
+     hand.** `docker-compose.yml` mounted no `/etc/grafana/provisioning` at all. Added
+     `monitoring/grafana-provisioning/{datasources,dashboards}/` (new) and mounted both into the
+     `grafana` service — datasources and the dashboard now appear automatically on container
+     start.
+  5. **`ai-agents/mlflow_logger.py` defaulted `MLFLOW_HOST` to `host.docker.internal`, which does
+     not resolve on Linux Docker** (this project's actual EC2/docker-compose topology) without an
+     `extra_hosts` entry that didn't exist — every real run would have silently failed to log to
+     MLflow. Changed the default to `mlflow` (the compose service DNS name Jenkins can already
+     reach on the shared `devsecops` network) and added the `extra_hosts` entry to the `jenkins`
+     service anyway, so overriding back to `host.docker.internal` still works for other setups.
+  6. **`monitoring/prometheus.yml`'s Jenkins scrape target could never have succeeded** — the
+     stock `jenkins/jenkins:lts` image doesn't expose Prometheus-format metrics without a plugin
+     that isn't installed — and no Grafana panel queries it regardless. Commented it out with an
+     explanation rather than leaving a permanently-`DOWN` target with no consumer.
+  7. **Nearly every Jenkins pipeline stage past "Checkout Code" would fail with "command not
+     found."** The stock `jenkins/jenkins:lts` image has no python3, Docker CLI, kubectl, Helm,
+     or bandit/semgrep/checkov/gitleaks/opa binaries — all called directly by the root
+     `Jenkinsfile`. Added `jenkins/Dockerfile` (new) baking in all of them (pinned versions,
+     verified against live PyPI/GitHub availability before pinning), switched
+     `docker-compose.yml`'s `jenkins` service from `image:` to `build: ./jenkins`, and mounted
+     `/etc/rancher/k3s` (read-only, directory-not-file so it's a harmless empty mount on a host
+     without k3s) so the real Deploy stage below has a cluster to reach.
+  8. **The Jenkinsfile's "Deploy to Kubernetes" stage never deployed the real app** — it applied
+     `security/examples/good-deployment.yaml`, a separate throwaway OPA-policy demo manifest
+     (different Deployment name, a registry image that doesn't exist), regardless of whether a
+     real deploy was even possible. Rewrote the stage: when `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`
+     are set (new, optional, documented in `.env.example`) and a cluster is reachable, it now
+     pushes the build's actual image to Docker Hub and runs a real `helm upgrade --install`;
+     otherwise it says exactly why it's skipping instead of silently applying the unrelated
+     manifest.
+  9. Added `app/templates/dashboard.html` polish pass alongside — see Change #11 immediately
+     below for that (written first, in the same sitting).
+- **Reason**: explicit ask to find and fix every broken service-to-service link rather than leave
+  config that merely looks wired up.
+- **Files**: `app/app.py`, `monitoring/promtail-config.yaml`, `monitoring/prometheus.yml`,
+  `monitoring/grafana-provisioning/datasources/datasources.yml` (new),
+  `monitoring/grafana-provisioning/dashboards/dashboards.yml` (new),
+  `monitoring/grafana-provisioning/dashboards/files/devsecops-overview.json` (new),
+  `ai-agents/mlflow_logger.py`, `.env.example`, `docker-compose.yml`, `jenkins/Dockerfile` (new),
+  `Jenkinsfile`, `docs/EC2_DEPLOYMENT_GUIDE.md`
+- **Tests**: `cd app && python3 -m pytest tests/ -v --cov=. --cov-report=term-missing` — 10/10
+  passed (2 new: one asserts `http_requests_total`/the `handler="/health"` label actually appear
+  in `/metrics` after a real request, one asserts a rejected write is logged with the `SECURITY`
+  tag via `caplog`). Also ran the app live (not just the test client) and `curl`'d `/metrics`
+  directly to confirm the real counters/histogram appear with real label values. Validated every
+  new/edited YAML and JSON file parses (`yaml.safe_load` / `json.load`), and checked the edited
+  `Jenkinsfile`'s brace/paren/triple-quote balance the same way prior changes in this file did.
+  **Not integration-tested**: `jenkins/Dockerfile` actually building, the real Jenkins Deploy
+  stage running end-to-end, and Grafana auto-provisioning actually rendering — no Docker daemon
+  in this sandbox, same limitation as every prior change in this file that touched
+  Docker/Kubernetes. Verify these first on the real EC2 box per `docs/EC2_DEPLOYMENT_GUIDE.md`.
+- **Result**: Fixed and covered by tests/validation to the extent this sandbox allows; the
+  Docker-dependent pieces are implemented and reviewed, not yet run end-to-end anywhere.
+- **Remaining Issues**: If `jenkins/Dockerfile`'s pinned tool versions are ever bumped, verify
+  each new version resolves before committing (same discipline used to pick the pins here).
+
+### 2026-09-06 — Change #11: Presentation dashboard + fix 2 broken tests found while adding it
+- **Change**: Added `GET /dashboard` (`app/app.py`) rendering a new `app/templates/dashboard.html` — a
+  human-facing landing page (live `/health` status badge, an interactive search/list/add-user panel against
+  the real API, and a card grid linking to Jenkins/SonarQube/Grafana/MLflow on the same host, built from
+  `window.location.hostname` so nothing needs configuring). `/` is untouched and still returns JSON. While
+  wiring this up, ran the existing suite and found `test_create_user` and `test_create_user_missing_fields`
+  were both failing (401, not 201/400) — they predate the API-key auth added in Change #2 and never sent the
+  header it requires, contradicting this file's prior "12/12 passing" claim. Fixed both to send
+  `X-API-Key`, and added `test_create_user_no_api_key` (asserts the 401 the two fixed tests were accidentally
+  hitting) and `test_dashboard` (asserts the new route renders) — 8/8 passing now (test count changed from
+  the original 6 to 8: 2 new, 0 removed).
+- **Reason**: A bare JSON root (`{"message": "AI DevSecOps Pipeline - Sample App", ...}`) is a poor "share this
+  link" experience for a live university presentation; the two broken tests were a real, verifiable gap
+  between this file's claims and actual `pytest` output, found incidentally, not left for later.
+- **Files**: `app/app.py`, `app/templates/dashboard.html` (new), `app/tests/test_app.py`,
+  `docs/EC2_DEPLOYMENT_GUIDE.md` (§8 updated to point the "what the end viewer sees" walkthrough at
+  `/dashboard` instead of the bare root)
+- **Tests**: `cd app && python3 -m pytest tests/ -v --cov=. --cov-report=term-missing` — 8/8 passed. Coverage
+  79% (down from the previously claimed 97% — the gap is pre-existing untested exception/rate-limit branches
+  in `app.py`, not anything introduced here; not chased further as it wasn't in scope for this change).
+- **Result**: Fixed and covered by tests.
+- **Remaining Issues**: None for this change. The app.py exception-branch coverage gap noted above is a
+  pre-existing, separate item if anyone wants to raise coverage later.
 
 ### 2026-09-02 — Change #1: Fix broken dependency pin blocking all installs
 - **Change**: `app/requirements.txt`: `pytest-cov==4.1.1` → `pytest-cov==4.1.0` (the `4.1.1` release does not

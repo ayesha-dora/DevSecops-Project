@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI-Augmented DevSecOps Pipeline</title>
+<style>
+  :root {
+    --bg: #0b0f19;
+    --bg-panel: #131a2b;
+    --bg-panel-hover: #182140;
+    --border: #24304d;
+    --text: #e6ebf5;
+    --text-dim: #8b96b3;
+    --accent: #5b8cff;
+    --accent-2: #35d0a3;
+    --danger: #ff5b6e;
+    --warn: #ffb454;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(circle at 20% -10%, #1a2547 0%, var(--bg) 45%);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 24px 80px; }
+
+  /* ---------- Hero ---------- */
+  .hero { text-align: center; margin-bottom: 56px; }
+  .hero h1 {
+    font-size: 2.4rem;
+    margin: 0 0 8px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-weight: 800;
+  }
+  .hero p { color: var(--text-dim); margin: 0 0 20px; font-size: 1.05rem; }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 999px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+    font-family: var(--mono);
+  }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--text-dim);
+    box-shadow: 0 0 0 0 rgba(53,208,163,0.6);
+  }
+  .dot.ok { background: var(--accent-2); animation: pulse 2s infinite; }
+  .dot.bad { background: var(--danger); }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(53,208,163,0.55); }
+    70%  { box-shadow: 0 0 0 8px rgba(53,208,163,0); }
+    100% { box-shadow: 0 0 0 0 rgba(53,208,163,0); }
+  }
+
+  /* ---------- Pipeline strip ---------- */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    margin: 0 0 64px;
+  }
+  .pipeline .step {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 14px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .pipeline .arrow { color: var(--border); font-size: 0.85rem; }
+
+  /* ---------- Section headings ---------- */
+  section { margin-bottom: 56px; }
+  h2 {
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+  }
+
+  /* ---------- Cards / grid ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    transition: background 0.15s, transform 0.15s;
+    display: block;
+    text-decoration: none;
+    color: var(--text);
+  }
+  .card:hover { background: var(--bg-panel-hover); transform: translateY(-2px); }
+  .card .icon { font-size: 1.6rem; margin-bottom: 8px; display: block; }
+  .card .title { font-weight: 700; margin-bottom: 4px; }
+  .card .desc { color: var(--text-dim); font-size: 0.85rem; }
+  .card .link-hint { margin-top: 10px; font-size: 0.8rem; color: var(--accent); font-family: var(--mono); }
+
+  /* ---------- Demo panel ---------- */
+  .demo-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .demo-tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .demo-tab {
+    padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim); cursor: pointer; font-size: 0.9rem;
+  }
+  .demo-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .demo-body { display: none; }
+  .demo-body.active { display: block; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  input {
+    flex: 1; min-width: 160px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.9rem;
+  }
+  input::placeholder { color: #566085; }
+  button.action {
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  button.action:hover { filter: brightness(1.1); }
+  .output {
+    margin-top: 4px;
+    background: #060a12;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 260px;
+    overflow-y: auto;
+    color: #c9d3e8;
+  }
+  .output.empty { color: var(--text-dim); font-style: italic; }
+  .hint { font-size: 0.78rem; color: var(--text-dim); margin: -8px 0 14px; }
+
+  /* ---------- Badges ---------- */
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; }
+  .badge {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 0.8rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+  }
+
+  footer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--text-dim); text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <h1>AI-Augmented DevSecOps Pipeline</h1>
+    <p>Security-first CI/CD demo &mdash; Flask &middot; Kubernetes &middot; Jenkins &middot; AI/LLM Ops</p>
+    <span class="status-pill"><span class="dot" id="status-dot"></span><span id="status-text">checking status&hellip;</span></span>
+  </div>
+
+  <div class="pipeline" aria-hidden="true">
+    <div class="step">📝 Code</div><div class="arrow">&rarr;</div>
+    <div class="step">🛡️ SAST + Secret + IaC Scan</div><div class="arrow">&rarr;</div>
+    <div class="step">🤖 AI Review</div><div class="arrow">&rarr;</div>
+    <div class="step">📦 Build + Trivy Scan</div><div class="arrow">&rarr;</div>
+    <div class="step">⚖️ OPA / Security Gate</div><div class="arrow">&rarr;</div>
+    <div class="step">☸️ Deploy (K8s)</div><div class="arrow">&rarr;</div>
+    <div class="step">🕷️ DAST (ZAP)</div>
+  </div>
+
+  <section>
+    <h2>Live API demo</h2>
+    <div class="demo-panel">
+      <div class="demo-tabs">
+        <button class="demo-tab active" data-tab="search">Search users</button>
+        <button class="demo-tab" data-tab="list">List users</button>
+        <button class="demo-tab" data-tab="add">Add user</button>
+      </div>
+
+      <div class="demo-body active" id="tab-search">
+        <p class="hint">Calls <code>GET /search?q=...</code> against the live database on this pod.</p>
+        <div class="row">
+          <input type="text" id="search-q" placeholder="username fragment, e.g. test">
+          <button class="action" onclick="runSearch()">Search</button>
+        </div>
+        <div class="output empty" id="search-output">Results will appear here.</div>
+      </div>
+
+      <div class="demo-body" id="tab-list">
+        <p class="hint">Calls <code>GET /users</code> &mdash; every registered user, live.</p>
+        <div class="row"><button class="action" onclick="runList()">Fetch users</button></div>
+        <div class="output empty" id="list-output">Results will appear here.</div>
+      </div>
+
+      <div class="demo-body" id="tab-add">
+        <p class="hint">Calls <code>POST /users</code>. Requires the app's API key &mdash; type it in,
+          it is never stored in this page's source. Presenter-only step; skip if you don't have it handy.</p>
+        <div class="row">
+          <input type="text" id="add-username" placeholder="username">
+          <input type="email" id="add-email" placeholder="email">
+        </div>
+        <div class="row">
+          <input type="password" id="add-apikey" placeholder="X-API-Key">
+          <button class="action" onclick="runAdd()">Add user</button>
+        </div>
+        <div class="output empty" id="add-output">Result will appear here.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Explore the pipeline</h2>
+    <div class="grid" id="tool-links">
+      <!-- filled in by JS below, using this page's own hostname -->
+    </div>
+  </section>
+
+  <section>
+    <h2>Security &amp; compliance tooling</h2>
+    <div class="badges">
+      <span class="badge">Bandit (SAST)</span>
+      <span class="badge">Semgrep (SAST)</span>
+      <span class="badge">SonarQube</span>
+      <span class="badge">gitleaks (secrets)</span>
+      <span class="badge">Snyk (SCA)</span>
+      <span class="badge">OWASP Dependency-Check</span>
+      <span class="badge">Trivy (container)</span>
+      <span class="badge">checkov (IaC)</span>
+      <span class="badge">OPA / Rego (policy)</span>
+      <span class="badge">OWASP ZAP (DAST)</span>
+    </div>
+  </section>
+
+  <footer>
+    Deployed on Kubernetes &middot; built by a Jenkins CI/CD pipeline &middot;
+    <a href="https://github.com/ayesha-dora/DevSecops-Project" target="_blank" rel="noopener">source on GitHub</a>
+  </footer>
+</div>
+
+<script>
+  // ---- Health badge ----
+  fetch('/health').then(r => r.json()).then(d => {
+    const dot = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    if (d.status === 'healthy') {
+      dot.classList.add('ok');
+      text.textContent = 'System healthy';
+    } else {
+      dot.classList.add('bad');
+      text.textContent = 'Degraded';
+    }
+  }).catch(() => {
+    document.getElementById('status-dot').classList.add('bad');
+    document.getElementById('status-text').textContent = 'Unreachable';
+  });
+
+  // ---- Tabs ----
+  document.querySelectorAll('.demo-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.demo-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.demo-body').forEach(b => b.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  function showOutput(id, data, isError) {
+    const el = document.getElementById(id);
+    el.classList.remove('empty');
+    el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    el.style.color = isError ? '#ff8b96' : '';
+  }
+
+  async function runSearch() {
+    const q = document.getElementById('search-q').value.trim();
+    if (!q) { showOutput('search-output', 'Type something to search for first.', true); return; }
+    try {
+      const res = await fetch('/search?q=' + encodeURIComponent(q));
+      const data = await res.json();
+      showOutput('search-output', data, !res.ok);
+    } catch (e) { showOutput('search-output', 'Request failed: ' + e, true); }
+  }
+
+  async function runList() {
+    try {
+      const res = await fetch('/users');
+      const data = await res.json();
+      showOutput('list-output', data, !res.ok);
+    } catch (e) { showOutput('list-output', 'Request failed: ' + e, true); }
+  }
+
+  async function runAdd() {
+    const username = document.getElementById('add-username').value.trim();
+    const email = document.getElementById('add-email').value.trim();
+    const apiKey = document.getElementById('add-apikey').value;
+    if (!username || !email) { showOutput('add-output', 'Username and email are both required.', true); return; }
+    try {
+      const res = await fetch('/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+        body: JSON.stringify({ username, email })
+      });
+      const data = await res.json();
+      showOutput('add-output', data, !res.ok);
+    } catch (e) { showOutput('add-output', 'Request failed: ' + e, true); }
+  }
+
+  // ---- Tool links, built from this page's own hostname so no manual config is needed ----
+  // Same EC2 box, different ports (see docs/EC2_DEPLOYMENT_GUIDE.md). These are separate
+  // services from the k8s-deployed app itself, reached over plain HTTP on their own ports.
+  const host = window.location.hostname;
+  const tools = [
+    { icon: '⚙️', name: 'Jenkins', port: 8081, desc: 'CI/CD pipeline runs, stage-by-stage, with archived scan reports.' },
+    { icon: '🔍', name: 'SonarQube', port: 9000, desc: 'Code quality analysis and quality gate.' },
+    { icon: '📊', name: 'Grafana', port: 3000, desc: 'Live metrics (Prometheus) and logs (Loki) dashboard.' },
+    { icon: '🧪', name: 'MLflow', port: 5000, desc: 'Tracked runs for the three AI/LLM pipeline stages.' },
+  ];
+  const container = document.getElementById('tool-links');
+  tools.forEach(t => {
+    const a = document.createElement('a');
+    a.className = 'card';
+    a.href = 'http://' + host + ':' + t.port;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.innerHTML = '<span class="icon">' + t.icon + '</span>' +
+                  '<div class="title">' + t.name + '</div>' +
+                  '<div class="desc">' + t.desc + '</div>' +
+                  '<div class="link-hint">' + host + ':' + t.port + ' &rarr;</div>';
+    container.appendChild(a);
+  });
+</script>
+</body>
+</html>

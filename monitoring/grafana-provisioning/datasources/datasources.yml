@@ -1,0 +1,24 @@
+# Grafana datasource provisioning (new — see CONTEXT.md Change #12).
+#
+# Previously docker-compose.yml mounted no provisioning directory at all, so a fresh
+# `docker compose up` gave you a Grafana with zero datasources configured. The dashboard JSON
+# (monitoring/grafana-dashboard.json) references datasources named exactly "Prometheus" and
+# "Loki" by string, which only resolves if datasources with those exact names already exist —
+# previously that meant clicking through Grafana's UI by hand every time. This file makes both
+# datasources appear automatically on container start; see docker-compose.yml's grafana service
+# for the volume mount that wires this in.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: true

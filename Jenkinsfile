@@ -233,11 +233,52 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                echo 'Deploying to Kubernetes (demo manifest)...'
+                echo 'Deploying to Kubernetes...'
                 sh '''
-                    kubectl apply -f kubernetes/namespace.yaml || true
-                    # Apply example deployment (non-blocking)
-                    kubectl apply -f security/examples/good-deployment.yaml || true
+                    mkdir -p reports || true
+                    KUBECONFIG_FILE=/etc/rancher/k3s/k3s.yaml
+                    CLUSTER_OK=false
+                    if [ -f "${KUBECONFIG_FILE}" ] && kubectl --kubeconfig="${KUBECONFIG_FILE}" get nodes >/dev/null 2>&1; then
+                        CLUSTER_OK=true
+                    fi
+
+                    if [ "${CLUSTER_OK}" = "true" ] && [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+                        # Real deploy: push the image this same build just produced (Container Build
+                        # stage, ${APP_IMAGE}) to Docker Hub, then point Helm's chart at it. This is
+                        # the path a stock Jenkins-in-Docker + k3s setup can actually complete without
+                        # any Docker-daemon-to-containerd bridge (k3s pulls over the network like any
+                        # other cluster would) — see docs/EC2_DEPLOYMENT_GUIDE.md Part E for the
+                        # equivalent manual, no-registry-needed command using a local image import,
+                        # which stays the simpler option when you don't want a Docker Hub repo.
+                        echo "🚀 Deploying ${APP_IMAGE} to Kubernetes via Docker Hub + Helm..."
+                        echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+                        docker tag "${APP_IMAGE}" "${DOCKERHUB_USERNAME}/devsecops-app:${BUILD_NUMBER}"
+                        docker push "${DOCKERHUB_USERNAME}/devsecops-app:${BUILD_NUMBER}"
+                        kubectl --kubeconfig="${KUBECONFIG_FILE}" apply -f kubernetes/namespace.yaml || true
+                        helm --kubeconfig="${KUBECONFIG_FILE}" upgrade --install devsecops-app ./helm/devsecops-app \
+                            --namespace default \
+                            --set image.repository="${DOCKERHUB_USERNAME}/devsecops-app" \
+                            --set image.tag="${BUILD_NUMBER}" \
+                            --wait --timeout 120s \
+                            && echo "✅ Deployed ${DOCKERHUB_USERNAME}/devsecops-app:${BUILD_NUMBER}" \
+                            || echo "⚠️ Helm deploy failed — see log above. Non-blocking, matches this repo's scan-stage philosophy (see docs/SECURITY.md)."
+                    else
+                        # Honest skip, not silent no-op: previously this stage always applied
+                        # security/examples/good-deployment.yaml — a throwaway OPA-policy demo
+                        # manifest (different Deployment name, a registry image that doesn't exist)
+                        # — regardless of whether a real deploy was possible, which looked like a
+                        # working "Deploy" stage without actually deploying this build's app anywhere
+                        # reachable. Now: deploy for real when it's actually possible, otherwise say so.
+                        if [ "${CLUSTER_OK}" != "true" ]; then
+                            echo "⚠️ No reachable Kubernetes cluster at ${KUBECONFIG_FILE} on this agent — skipping real deploy."
+                        else
+                            echo "⚠️ DOCKERHUB_USERNAME/DOCKERHUB_TOKEN not set — skipping real deploy (see .env.example)."
+                        fi
+                        echo "⚠️ See docs/EC2_DEPLOYMENT_GUIDE.md Part E to deploy manually without needing a registry."
+                        echo "⚠️ Applying the OPA-policy demo manifest instead, so the OPA Compliance Gate stage still has a live example to point at if you inspect the cluster by hand."
+                        kubectl --kubeconfig="${KUBECONFIG_FILE}" apply -f kubernetes/namespace.yaml 2>/dev/null || true
+                        kubectl --kubeconfig="${KUBECONFIG_FILE}" apply -f security/examples/good-deployment.yaml 2>/dev/null || true
+                    fi
                 '''
             }
         }

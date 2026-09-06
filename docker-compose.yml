@@ -21,8 +21,12 @@ services:
       - devsecops
 
   # 1. JENKINS — CI/CD Pipeline Server
+  # Builds from ./jenkins/Dockerfile instead of the stock jenkins/jenkins:lts image — see that
+  # file for why: the stock image has none of python3/docker CLI/kubectl/helm/bandit/semgrep/
+  # checkov/gitleaks/opa that the root Jenkinsfile's stages actually call. First `docker compose
+  # up` here will take a few extra minutes to build the image; subsequent starts reuse it.
   jenkins:
-    image: jenkins/jenkins:lts
+    build: ./jenkins
     container_name: jenkins
     restart: unless-stopped
     ports:
@@ -31,6 +35,20 @@ services:
     volumes:
       - jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
+      # k3s's kubeconfig, if k3s is installed on this host (see docs/EC2_DEPLOYMENT_GUIDE.md /
+      # scripts/ec2-bootstrap.sh) — read-only, used by the Jenkinsfile's real Deploy stage.
+      # Mounting the directory rather than the single k3s.yaml file means this is a harmless
+      # empty mount (not an error) on a machine that doesn't have k3s installed at all, e.g. a
+      # laptop just running the tool stack without the Kubernetes half of this project.
+      - /etc/rancher/k3s:/etc/rancher/k3s:ro
+    environment:
+      # Belt-and-suspenders alongside ai-agents/mlflow_logger.py's default MLFLOW_HOST=mlflow —
+      # this makes the (otherwise Linux-Docker-incompatible) host.docker.internal hostname work
+      # too, in case anyone overrides MLFLOW_HOST back to it for a differently-shaped setup.
+      - DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME:-}
+      - DOCKERHUB_TOKEN=${DOCKERHUB_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - devsecops
 
@@ -82,8 +100,16 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana
+      # Auto-provisioning (new — see CONTEXT.md Change #12): previously nothing mounted
+      # anything into /etc/grafana/provisioning, so a fresh container had zero datasources and
+      # the dashboard existed only as a file you had to import by hand. These two mounts make
+      # both the "Prometheus"/"Loki" datasources and the "DevSecOps Overview" dashboard appear
+      # automatically on container start.
+      - ./monitoring/grafana-provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
     depends_on:
       - prometheus
+      - loki
     networks:
       - devsecops
 

@@ -198,16 +198,18 @@ bootstrap script set `vm.max_map_count`). Then from your own laptop browser:
 unlock code. Install the suggested plugins, create an admin user, then **New Item → Pipeline**, point it at
 your Git repo (or paste the `Jenkinsfile` directly with "Pipeline script"), and run it.
 
-**Import the Grafana dashboard**: Dashboards → Import → upload `monitoring/grafana-dashboard.json`.
+**Grafana's dashboard now appears automatically** — no manual import needed (see CONTEXT.md Change #12);
+the "Import the Grafana dashboard" step from earlier versions of this guide is no longer necessary.
 
-⚠️ **Jenkins's own "Deploy to Kubernetes" stage does not deploy the real app.** Looking at the current
-`Jenkinsfile`, that stage runs `kubectl apply -f security/examples/good-deployment.yaml` — that file is a
-separate, throwaway example manifest used to demonstrate the OPA policy gate (`devsecops-app-good`, image
-`myregistry/devsecops-app:1.0.0`, which doesn't exist and won't pull). It's non-blocking (`|| true`) so it
-won't fail your pipeline, you'll just see one pod stuck in `ImagePullBackOff` if you check `kubectl get pods`
-in the `default` namespace — that's expected and harmless, not something you need to fix. **The real,
-internet-reachable deployment is done manually via Helm in Part E below.** If you want Jenkins itself to do
-the real deploy, see the optional appendix at the end of this document.
+**Jenkins's "Deploy to Kubernetes" stage can now do a real deploy** (as of CONTEXT.md Change #12) — but only
+if you give it something to push the image to. Set `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` in `.env` (see
+`.env.example`) *before* `docker compose up -d` and the stage will push the build's image to Docker Hub and
+run the real `helm upgrade --install` against whatever cluster the mounted k3s kubeconfig points at. **Leave
+both unset and the stage now says so explicitly** rather than silently applying an unrelated throwaway
+manifest the way it used to — you'll see a clear "skipping real deploy" message in the Jenkins console output,
+with a pointer back to the manual, no-registry-needed Part E process below. Either way, **doing the manual
+Helm deploy in Part E once is still the fastest path** to a live URL if you don't want to set up a Docker Hub
+token — it's not a workaround for a limitation, just the simpler of two equally real options.
 
 ---
 
@@ -288,32 +290,30 @@ Open `https://<APP_HOST>` in a browser from **any machine, anywhere** — this i
 
 ## 8. Part F — What the end viewer will actually see
 
-You said the goal is to hand this link to another student so they can present. Be upfront with them about one
-thing: **this is a backend REST API, not a website.** There is no HTML page, login screen, or button to click.
-Hitting `https://<APP_HOST>/` in a browser returns raw JSON:
+**Share `https://<APP_HOST>/dashboard`, not the bare `https://<APP_HOST>/`.** The bare root is still a
+backend REST endpoint — it returns raw JSON (`{"message": "AI DevSecOps Pipeline - Sample App", ...}`), which
+is correct behavior for an API but not something to put on a screen in front of a class. `/dashboard` (added
+2026-09-06, `app/templates/dashboard.html`, served by a new route in `app/app.py`) is a proper landing page:
+a live health badge (polls `/health` for real), an interactive panel to search/list/add users against the
+actual running API without typing curl commands, and a card grid linking out to Jenkins/SonarQube/Grafana/
+MLflow on this same host (built automatically from the page's own hostname — nothing to configure).
 
-```json
-{"message": "AI DevSecOps Pipeline - Sample App", "version": "1.0.0", "status": "running"}
-```
+For a presentation, still build the walkthrough around a short tour, now starting from that one link:
 
-That is expected and correct — it's what a Flask API is supposed to return. For a presentation, the
-**visually interesting parts are the tooling around the app, not the app's own output**. Build the
-presentation around a short tour of five URLs, in this order:
-
-1. **The live app itself** (`https://<APP_HOST>/health`, `/users`, `/search?q=test`) — proves it's really
-   running on Kubernetes and reachable over real HTTPS, not just `localhost`.
-   `kubectl get pods -n default` alongside it shows 2 replicas actually running.
-2. **Jenkins** (`http://<ELASTIC_IP>:8081`) — the pipeline run, stage-by-stage, green checkmarks, archived
-   `reports/*` artifacts (Bandit/Semgrep/Trivy/checkov JSON, ZAP results). This is the most "DevSecOps-looking"
-   screen you have.
+1. **`/dashboard`** — the live health badge and the interactive user search/list/add demo. Proves the app is
+   really running on Kubernetes and reachable over real HTTPS, not `localhost`. `kubectl get pods -n default`
+   alongside it shows 2 replicas actually running. The "Add user" demo needs the real `APP_API_KEY` typed into
+   its password field live — it's never embedded in the page itself.
+2. **Jenkins** (`http://<ELASTIC_IP>:8081`, also linked from the dashboard) — the pipeline run, stage-by-stage,
+   green checkmarks, archived `reports/*` artifacts (Bandit/Semgrep/Trivy/checkov JSON, ZAP results).
 3. **SonarQube** (`http://<ELASTIC_IP>:9000`) — code quality dashboard, a concrete, visual quality gate.
 4. **Grafana** (`http://<ELASTIC_IP>:3000`) — the imported dashboard: live HTTP request-rate graph and the
    "Application Security Logs" panel backed by real Loki log lines shipped from the running containers.
 5. **MLflow** (`http://<ELASTIC_IP>:5000`) — the three AI/LLM pipeline runs (code review, HF vulnerability
    triage, doc generation) logged as tracked experiments, with their fallback-vs-live status visible.
 
-Consider writing these five URLs on a slide or a shared doc before the presentation — that's the actual
-"end product" a client/professor sees, not a single homepage.
+The dashboard's card grid links to 2–4 for you, so `/dashboard` alone is close to a one-link demo; the numbered
+list above is really about knowing what to narrate once you're on each page.
 
 ---
 
@@ -354,19 +354,21 @@ launch) — this is the point of no return, confirm you don't need anything on i
 | SonarQube container keeps restarting | `vm.max_map_count` not applied — re-run `sudo sysctl -w vm.max_map_count=262144` and `docker compose restart sonarqube`. |
 | `helm upgrade --install` hangs on the Ingress | `ingress-nginx` pod not yet `Running` — check `kubectl get pods -n ingress-nginx`. |
 | Certificate stuck `READY=False` | Port 80 not reachable from the internet (check the security group) — Let's Encrypt's HTTP-01 challenge needs it. `kubectl describe certificate devsecops-tls -n default` shows the exact reason. |
-| One pod shows `ImagePullBackOff` in `default` namespace | That's `devsecops-app-good` from Jenkins's Deploy stage (see §6) — harmless, unrelated to your real Helm release. |
+| One pod shows `ImagePullBackOff` named `devsecops-app-good` in `default` namespace | Jenkins's Deploy stage fell back to the OPA-policy demo manifest (no `DOCKERHUB_USERNAME`/`TOKEN` set, or no reachable cluster) — harmless, unrelated to your real Helm release; see §6. |
+| Jenkins image fails to build (`docker compose up` errors during the jenkins step) | A pinned tool version in `jenkins/Dockerfile` may have been yanked from PyPI/GitHub since this was written (2026-09-06) — check the build log for which `RUN` step failed and bump that one pin. |
 | Out of memory / OOM-killed containers | Confirm the 4G swapfile is active (`swapon --show`); temporarily `docker compose stop sonarqube zap` when not demoing them — they're the two heaviest tool-stack containers. |
 | `kubectl` egress/DNS oddities from inside the app pod | The Helm chart's `NetworkPolicy` template only opens **TCP** port 53 in egress (the plain `kubernetes/network-policy.yaml` opens UDP too) — the app doesn't make outbound calls at runtime, so this normally doesn't matter, but it's a known gap if you ever add one. |
 | NetworkPolicy seems to have no effect at all | k3s's default CNI (Flannel) **does not enforce NetworkPolicy**. The policy still documents and demonstrates the intended zero-trust design (a legitimate thing to point out in Q&A), but nothing will actually be blocked in this specific single-node setup unless you additionally install a policy-enforcing CNI like Calico — out of scope for this budget/timeline. |
 
 ---
 
-## Appendix — Optional: making Jenkins actually run the real deploy
+## Appendix — what changed in `jenkins/Dockerfile` and why
 
-The `Jenkinsfile`'s Deploy stage currently applies `security/examples/good-deployment.yaml` (see §6). If you
-want the pipeline itself — not you, manually — to run the Part E Helm command against k3s, Jenkins needs
-`kubectl`/`helm` binaries and a kubeconfig inside its container. This is a real, if optional, change to the
-repo (not made here, since it wasn't asked for): add `kubectl`/`helm` to a custom Jenkins image, mount
-`/etc/rancher/k3s/k3s.yaml` read-only into the container, and replace that one `sh` block with the `helm
-upgrade --install ...` command from Part E. Flag this back to whoever maintains `CONTEXT.md`'s Change Log if
-you make it, per this repo's own documented practice.
+Everything the earlier version of this appendix proposed as optional future work is now done — see
+`jenkins/Dockerfile` and CONTEXT.md Change #12. In short: `docker-compose.yml`'s `jenkins` service now
+**builds** a custom image instead of running the stock `jenkins/jenkins:lts` one, because that stock image
+has none of python3, the Docker CLI, kubectl, Helm, or the bandit/semgrep/checkov/gitleaks/opa binaries the
+root `Jenkinsfile`'s stages actually call — nearly every stage past "Checkout Code" would otherwise fail with
+"command not found" the first time the pipeline actually ran. If you rebuild this image later, remember its
+tool versions are deliberately pinned (same reasoning as `ai-agents/requirements.txt`) — bump them on purpose,
+check `docs/EC2_DEPLOYMENT_GUIDE.md`'s troubleshooting table above if a pin has since been yanked upstream.

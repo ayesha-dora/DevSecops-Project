@@ -27,9 +27,18 @@ def log_all_to_mlflow():
         print("⚠️ Skipping MLflow logging - AI runs will still complete via fallback paths")
         return
 
-    # Connect to MLflow server with timeout protection
-    # Use host.docker.internal when running inside Jenkins container
-    mlflow_host = os.environ.get('MLFLOW_HOST', 'host.docker.internal')
+    # Connect to MLflow server with timeout protection.
+    # Default is 'mlflow' — the docker-compose service DNS name — because that's what this
+    # script actually runs against in this repo's real topology: Jenkins and mlflow are both
+    # services on the same 'devsecops' compose network (see docker-compose.yml). The previous
+    # default, 'host.docker.internal', does NOT resolve on Linux Docker (which is what this
+    # project's EC2 deployment uses) unless the container also has
+    # `extra_hosts: ["host.docker.internal:host-gateway"]` set — which docker-compose.yml's
+    # jenkins service now does, as a second, independent fix, so overriding MLFLOW_HOST back to
+    # host.docker.internal (e.g. for a differently-shaped setup) still works too. If instead
+    # running this script directly on the bare host (not inside any container), override to
+    # 'localhost' — the mlflow service's port is also published there.
+    mlflow_host = os.environ.get('MLFLOW_HOST', 'mlflow')
     tracking_uri = f"http://{mlflow_host}:5000"
 
     # Get timeout setting (default 10 seconds)

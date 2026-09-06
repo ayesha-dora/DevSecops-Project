@@ -9,8 +9,15 @@ scrape_configs:
     static_configs:
       - targets: ['devsecops-app:5000']
 
-  - job_name: 'jenkins'
-    metrics_path: /metrics
-    scrape_interval: 15s
-    static_configs:
-      - targets: ['jenkins:8080']
+  # Disabled: the stock jenkins/jenkins:lts image (what docker-compose.yml runs) does not expose
+  # Prometheus-format metrics at /metrics without the separate "Prometheus metrics" Jenkins
+  # plugin, which isn't installed — this target would sit permanently "DOWN" in Prometheus with a
+  # 404/HTML-parse error every scrape, and no Grafana panel queries it anyway (see
+  # monitoring/grafana-dashboard.json — only devsecops-app's own metrics are graphed). Re-enable
+  # this once the plugin is installed (e.g. via jenkins/Dockerfile) if you want ad-hoc Jenkins
+  # metrics queryable in Prometheus's own UI.
+  # - job_name: 'jenkins'
+  #   metrics_path: /metrics
+  #   scrape_interval: 15s
+  #   static_configs:
+  #     - targets: ['jenkins:8080']

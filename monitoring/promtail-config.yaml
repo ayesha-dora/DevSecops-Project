@@ -22,8 +22,13 @@ scrape_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 15s
     relabel_configs:
-      # Use container name as job label
+      # Use container name as job label. Docker's own container-name metadata always has a
+      # leading "/" (e.g. "/devsecops-app"), which relabel_configs otherwise copies verbatim —
+      # that would never match the dashboard's {job="devsecops-app"} query (no leading slash).
+      # The regex strips it; default action=replace with no explicit `replacement` uses the
+      # first capture group.
       - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
         target_label: 'job'
       # Use container image name for service label
       - source_labels: ['__meta_docker_container_image_name']
