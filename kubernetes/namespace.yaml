@@ -1,0 +1,19 @@
+---
+# Kubernetes Namespace for DevSecOps Application
+# Created: 2026-09-02
+# Purpose: Isolate the devsecops application and its resources from other namespaces
+#
+# Apply with:
+#   kubectl apply -f kubernetes/namespace.yaml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devsecops
+  labels:
+    app: devsecops
+    app.kubernetes.io/name: devsecops-pipeline
+    app.kubernetes.io/managed-by: helm
+  annotations:
+    description: "Namespace for AI-Augmented DevSecOps Pipeline application and monitoring"
+    created-by: "DevSecOps Pipeline Setup"

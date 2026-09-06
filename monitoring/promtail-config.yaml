@@ -1,0 +1,76 @@
+# Promtail Configuration - Log Shipping to Loki
+# Created: 2026-09-02
+#
+# PURPOSE:
+#   Promtail discovers containers running in Docker and ships their logs to Loki
+#   This completes the observability stack: Application → Docker → Promtail → Loki → Grafana
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Scrape Docker daemon logs from socket
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      # Use container name as job label
+      - source_labels: ['__meta_docker_container_name']
+        target_label: 'job'
+      # Use container image name for service label
+      - source_labels: ['__meta_docker_container_image_name']
+        target_label: 'image'
+      # Keep container ID for debugging
+      - source_labels: ['__meta_docker_container_id']
+        target_label: 'container_id'
+      # Add a static environment label
+      - replacement: docker
+        target_label: 'environment'
+    pipeline_stages:
+      # Parse JSON logs if present
+      - json:
+          expressions:
+            level: level
+            msg: msg
+            timestamp: timestamp
+      # Extract timestamp if in standard format
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+      # Extract severity level if present
+      - labels:
+          level:
+      # Add output labels
+      - output:
+          source: msg
+
+  # Scrape Promtail's own logs
+  - job_name: promtail
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: promtail
+          __path__: /var/log/promtail.log
+
+  # Optional: Scrape syslog if available
+  - job_name: syslog
+    syslog_sd_configs:
+      - listen_address: 127.0.0.1:1514
+        use_incoming_timestamp: false
+    relabel_configs:
+      - source_labels: ['__syslog_message_hostname']
+        target_label: 'host'
+      - source_labels: ['__syslog_message_app_name']
+        target_label: 'app'
+
+# Logging
+loglevel: info

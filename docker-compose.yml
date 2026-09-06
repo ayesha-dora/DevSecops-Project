@@ -1,5 +1,25 @@
 services:
 
+  # 0. DEVSECOPS-APP — The sample application itself.
+  # Added in this engagement: monitoring/prometheus.yml has always scraped a "devsecops-app:5000" target and
+  # security/zap-runner.sh has always targeted "http://devsecops-app:5000", but no service by that name was
+  # ever defined in this file, so a plain `docker compose up` could stand up the whole tool stack while
+  # Prometheus and the ZAP scan both silently had nothing to reach. See docs/GAP_ANALYSIS.md.
+  devsecops-app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: devsecops-app
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    environment:
+      - APP_DB=/tmp/users.db
+      - APP_API_KEY=${APP_API_KEY:-}
+      - LOG_LEVEL=INFO
+    networks:
+      - devsecops
+
   # 1. JENKINS — CI/CD Pipeline Server
   jenkins:
     image: jenkins/jenkins:lts
@@ -54,8 +74,11 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      # No hardcoded default — set GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD in your .env (see .env.example).
+      # A previous version of this file shipped a hardcoded "admin123" password; that is a known-public
+      # default and has been removed (see docs/SECURITY.md).
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:?set GRAFANA_ADMIN_USER in .env, see .env.example}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env, see .env.example}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana
@@ -95,6 +118,39 @@ services:
     networks:
       - devsecops
 
+  # 7. LOKI — Log Aggregation
+  # NOTE: this service and Promtail below were added in this engagement. Previously monitoring/loki-config.yaml
+  # existed and Grafana's dashboard referenced a "Application Security Logs" Loki panel, but no Loki container
+  # was actually defined in this file and nothing shipped logs to it — the panel was always empty. See
+  # docs/GAP_ANALYSIS.md ("DevOps Problems" / "Loki had no log source").
+  loki:
+    image: grafana/loki:2.9.6
+    container_name: loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki-config.yaml:/etc/loki/loki-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/loki-config.yaml
+    networks:
+      - devsecops
+
+  # 8. PROMTAIL — Ships container logs to Loki
+  promtail:
+    image: grafana/promtail:2.9.6
+    container_name: promtail
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/promtail-config.yaml:/etc/promtail/promtail-config.yaml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    depends_on:
+      - loki
+    networks:
+      - devsecops
+
 volumes:
   jenkins_home:
   sonarqube_data:
@@ -103,6 +159,7 @@ volumes:
   prometheus_data:
   grafana_data:
   mlflow_data:
+  loki_data:
 
 networks:
   devsecops:

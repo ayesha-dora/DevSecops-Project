@@ -17,13 +17,22 @@ import time
 def analyze_with_huggingface():
     print("🧠 HuggingFace Vulnerability Analyzer Starting...")
 
-    # Install transformers if needed
+    # Load transformers - dependencies must be pre-installed via requirements.txt
     try:
         from transformers import pipeline as hf_pipeline
-    except ImportError:
-        print("Installing transformers...")
-        os.system("pip install transformers torch -q")
-        from transformers import pipeline as hf_pipeline
+    except ImportError as e:
+        print(f"⚠️ Transformers not available: {e}")
+        print("📝 Please install via: pip install -r ai-agents/requirements.txt")
+        print("Using fallback report...")
+        save_sample_report()
+        return
+
+    # Get model revision from environment (for reproducibility)
+    model_revision = os.environ.get('HF_MODEL_REVISION', None)
+    if model_revision:
+        print(f"📌 Using model revision: {model_revision}")
+    else:
+        print("⚠️ HF_MODEL_REVISION not set, using default (main branch)")
 
     # Load Bandit results
     bandit_path = "reports/bandit-report.json"
@@ -52,6 +61,7 @@ def analyze_with_huggingface():
         classifier = hf_pipeline(
             "text-classification",
             model="distilbert-base-uncased-finetuned-sst-2-english",
+            revision=model_revision,
             truncation=True,
             max_length=512
         )

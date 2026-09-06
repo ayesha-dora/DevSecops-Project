@@ -57,12 +57,13 @@ High-level flow (commit → secure deployment):
    - Deploy to Kubernetes (Helm or kubectl)
    - Dynamic Security Scan (OWASP ZAP) against running app
 3. Reports/artifacts archived (reports/*) and optionally published to dashboards and MLflow.
-4. Prometheus scrapes application and Jenkins; Loki collects logs; Grafana dashboard visualizes metrics and logs.
-5. Optional chaos tests (LitmusChaos) can validate resiliency.
+4. Prometheus scrapes the application and Jenkins; Promtail ships container logs (including the app's) to Loki; Grafana dashboard visualizes metrics and logs.
+5. Chaos engineering (LitmusChaos) is **not implemented** in this repository — it was referenced here in an earlier version as a placeholder that never existed on disk. Documented in `docs/GAP_ANALYSIS.md` as a future improvement, not claimed as present.
 
 Notes:
-- All security scan steps are non-blocking by default (use of `|| true` in pipeline) to ensure artifacts are produced during test runs while keeping the pipeline resilient for CI feedback. You can flip enforcement to fail builds where required.
+- All security scan steps are non-blocking by default (use of `|| true` in pipeline) to ensure artifacts are produced during test runs while keeping the pipeline resilient for CI feedback. An `ENFORCE_SECURITY` pipeline parameter and a single aggregated **Security Gate** stage (`security/security_gate.py`) control enforcement in one place — see `docs/SECURITY.md`.
 - OPA policy (`security/policy.rego`) enforces runtime constraints (no root, no `:latest`, resource requests/limits).
+- See `CONTEXT.md` and `docs/` for the full documentation set (PRD, TRD, SECURITY, FLOW, ARCHITECTURE, GAP_ANALYSIS, IMPLEMENTATION_PLAN, BASELINE, FINAL_AUDIT) produced alongside a full audit/hardening pass of this repository.
 
 ---
 
@@ -72,27 +73,34 @@ Visual tree (primary folders and important files):
 
 ```
 .
-├── app/                              # Application source (Flask/FastAPI etc.)
-├── ai-agents/                        # LLM agents and AI helpers (code_reviewer, analyzers)
+├── app/                              # Flask application, tests, pinned requirements.txt, Dockerfile
+├── ai-agents/                        # AI/LLM CI-stage scripts + their own pinned requirements.txt
 ├── helm/
 │   └── devsecops-app/                # Helm chart (deployment, service, ingress, networkpolicy)
-├── kubernetes/                       # Kubernetes manifests (deployment, service, ingress, network-policy)
-├── monitoring/                       # Prometheus, Loki, Grafana dashboard configs
+├── kubernetes/                       # namespace, deployment, service, ingress, network-policy manifests
+├── monitoring/                       # Prometheus, Loki, Promtail, Grafana dashboard configs
 ├── security/
 │   ├── snyk-config.json
 │   ├── owasp-zap-config.conf
 │   ├── zap-runner.sh
 │   ├── policy.rego
 │   ├── dependency-check.sh
+│   ├── gitleaks.toml
+│   ├── security_gate.py              # aggregates all scan reports into one pass/fail decision
 │   └── examples/                      # example Kubernetes manifests (good & bad)
-├── chaos/                             # (placeholder) LitmusChaos experiments
-├── terraform/                         # (placeholder) Terraform IaC for AWS ap-south-1
+├── terraform/                         # Terraform IaC (AWS governance/security) for ap-south-1
+├── docs/                              # PRD, TRD, SECURITY, FLOW, ARCHITECTURE, GAP_ANALYSIS, etc.
+├── CONTEXT.md                         # persistent project memory — read this first
+├── .env.example                       # every environment variable used anywhere in this repo
 ├── Jenkinsfile
+├── docker-compose.yml                 # local toolchain, including the app itself
 ├── README.md
-└── reports/                           # Generated test / scan reports
+└── reports/                           # Generated test / scan reports (gitignored)
 ```
 
-> Note: Some directories (chaos/, terraform/) may contain example manifests or placeholders. Adjust to your infra.
+There is no `chaos/` directory — an earlier version of this README referenced one as a placeholder for
+LitmusChaos experiments that was never actually created. See `docs/GAP_ANALYSIS.md` for this and every other
+gap between what was documented and what existed, and what was done about each.
 
 ---
 
@@ -100,32 +108,38 @@ Visual tree (primary folders and important files):
 
 ### CI/CD & Automation
 - Jenkins-driven pipeline (root `Jenkinsfile`) defines ordered stages:
-  - Checkout → SAST → Dependency Scan → AI Code Review & MLflow Logging → Container Scan → OPA Compliance Gate → Deploy → DAST (ZAP)
+  - Checkout → Install Dependencies → Lint → Unit Tests → SAST → SonarQube → Secret Scan → Dependency Scan → AI Code Review & Vulnerability Analysis & Doc Gen → MLflow Logging → Container Build → Container Scan → IaC Scan → OPA Compliance Gate → Security Gate → Deploy → DAST (ZAP) → Post-Deployment Verification
 - Reports archived for artifact inspection.
 
 ### AI & LLMOps
-- LangChain-friendly agents and Hugging Face integration (ai-agents/*).
-- MLflow integration to track AI/analysis runs and artifacts (ai-agents/mlflow_logger.py).
-- Use LLMs for code review and vulnerability summarization.
+- LangChain + local Ollama (CodeLlama) code review, Hugging Face Transformers vulnerability triage, LlamaIndex + Ollama (Llama3) + HF embeddings documentation generation (`ai-agents/*`).
+- Every AI script degrades to a documented static fallback report if its live model/service is unavailable — the pipeline never hard-fails for that reason alone.
+- MLflow integration tracks every AI run (`ai-agents/mlflow_logger.py`), with a hard 10s connect timeout so an unreachable MLflow server can't hang the pipeline.
+- AI/LLM dependencies are pinned in `ai-agents/requirements.txt` — see `docs/SECURITY.md` "Model Supply Chain" for why this matters and what changed.
 
 ### Security & Compliance
-- SAST: Bandit (Python) and Semgrep (config at `security/semgrep-rules.yaml` if present).
-- Dependency scanning: Snyk (`security/snyk-config.json`) + OWASP Dependency-Check (`security/dependency-check.sh`).
+- SAST: Bandit (Python) and Semgrep (config at `security/semgrep-rules.yaml`).
+- SonarQube: configured via `sonarqube/sonar-project.properties`, run by a dedicated Jenkins stage.
+- Secret scanning: gitleaks (`security/gitleaks.toml`).
+- Dependency scanning: Snyk (`security/snyk-config.json`) + OWASP Dependency-Check (`security/dependency-check.sh`), covering both `app/requirements.txt` and `ai-agents/requirements.txt`.
 - Container scanning: Trivy (Jenkins stage produces `reports/trivy-report.json`).
+- IaC scanning: checkov against `terraform/` and `kubernetes/`.
 - DAST: OWASP ZAP runner (`security/zap-runner.sh`) with `security/owasp-zap-config.conf`.
 - Policy: OPA policy in `security/policy.rego` + test harness `security/test_policy.sh`.
+- Security Gate: `security/security_gate.py` aggregates every scan's results into one pass/fail decision, enforced only when `ENFORCE_SECURITY=true`.
 - Reports location: `reports/*` and archived by Jenkins post step.
+- Full write-up, including the LLM-specific security section and a threat model: `docs/SECURITY.md`.
 
 ### Infrastructure & Kubernetes
-- Helm chart: `helm/devsecops-app/` (templated Deployment, Service, Ingress, NetworkPolicy).
-- Kubernetes manifests: `kubernetes/deployment.yaml`, `kubernetes/service.yaml`, `kubernetes/ingress.yaml`, `kubernetes/network-policy.yaml`.
-- Terraform: IaC for AWS (ap-south-1) lives in `terraform/` (update/providers/credentials as required).
+- Helm chart: `helm/devsecops-app/` (templated Deployment, Service, Ingress, NetworkPolicy) with a hardened container `securityContext` (no privilege escalation, all capabilities dropped, read-only root filesystem, seccomp).
+- Kubernetes manifests: `kubernetes/namespace.yaml` (dedicated `devsecops` namespace — apply this first), `deployment.yaml`, `service.yaml`, `ingress.yaml`, `network-policy.yaml`.
+- Terraform: AWS governance/security IaC (KMS, CloudTrail, GuardDuty, Security Hub, Secrets Manager, an IAM role) in `terraform/` — assumes an existing Kubernetes cluster; see `docs/TRD.md` for this scope boundary.
 
 ### Observability & Resiliency
-- Prometheus config: `monitoring/prometheus.yml` — scrapes app and Jenkins.
-- Loki config: `monitoring/loki-config.yaml` — single-binary config with 168h retention.
-- Grafana dashboard: `monitoring/grafana-dashboard.json` — prebuilt dashboard with HTTP Requests Rate and Application Security Logs.
-- Chaos: Placeholder in `chaos/` for LitmusChaos experiments (recommended for resilience validation).
+- Prometheus config: `monitoring/prometheus.yml` — scrapes the app and Jenkins.
+- Loki + Promtail: `monitoring/loki-config.yaml` + `monitoring/promtail-config.yaml` — Promtail actually ships container logs (including the app's) to Loki; both run as services in `docker-compose.yml`.
+- Grafana dashboard: `monitoring/grafana-dashboard.json` — prebuilt dashboard with HTTP Requests Rate and Application Security Logs (now actually populated).
+- Chaos engineering is not implemented — see the Repository Directory Structure note above.
 
 ---
 
@@ -146,17 +160,29 @@ Prerequisites
 ```bash
 git clone https://github.com/<your-org>/DevSecOps-CI-CD-Project.git
 cd DevSecOps-CI-CD-Project
+cp .env.example .env   # then fill in real values — see .env.example for what each variable does
 ```
 
-2) Run local tests & SAST (developer machine)
+2) Install dependencies and run local tests & SAST (developer machine)
 ```bash
-# Unit tests + coverage (example)
+pip install -r app/requirements.txt
+pip install -r ai-agents/requirements.txt   # optional — only needed for the live (non-fallback) AI/LLM paths
+
+# Unit tests + coverage
 cd app
-pytest tests/ -v --cov=. --junitxml=../reports/test-results.xml
+pytest tests/ -v --cov=. --cov-report=term-missing --junitxml=../reports/test-results.xml
+cd ..
 
 # Bandit & Semgrep
-bandit -r app -f json -o reports/bandit-report.json || true
+bandit -r app -f json -o reports/bandit-report.json --severity-level medium || true
 semgrep --config security/semgrep-rules.yaml app --json --output reports/semgrep-report.json || true
+
+# Secret scan
+gitleaks detect --source=. --config=security/gitleaks.toml --no-git || true
+
+# IaC scan
+checkov -d terraform --compact
+checkov -d kubernetes --framework kubernetes --compact
 ```
 
 3) Run dependency scans
@@ -185,8 +211,10 @@ chmod +x security/zap-runner.sh
 
 6) Build image & run Trivy scan
 ```bash
-# Build Docker image
-docker build -t ayeshaakram786/devsecops-app:local ./app
+# Build Docker image — build context MUST be the repo root (not ./app), because app/Dockerfile's COPY
+# instructions are written relative to the repo root (COPY app/requirements.txt, COPY app/ /app). An earlier
+# version of this README suggested `docker build ... ./app`, which does not match the Dockerfile and fails.
+docker build -t ayeshaakram786/devsecops-app:local -f app/Dockerfile .
 
 # Trivy (containerized)
 docker run --rm -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --format json --severity HIGH,CRITICAL ayeshaakram786/devsecops-app:local > reports/trivy-report.json || true
@@ -196,8 +224,8 @@ docker run --rm -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --f
 ```bash
 cd terraform
 terraform init
-terraform plan -var="region=ap-south-1"
-terraform apply -var="region=ap-south-1"
+terraform plan -var="aws_region=ap-south-1"
+terraform apply -var="aws_region=ap-south-1"
 ```
 
 8) Deploy to Kubernetes (Helm)
@@ -206,9 +234,10 @@ terraform apply -var="region=ap-south-1"
 helm template devsecops-app ./helm/devsecops-app
 
 # install to cluster (ensure TLS secret exists or set ingress.enabled=false)
-helm install devsecops-app ./helm/devsecops-app --namespace default --create-namespace
+helm install devsecops-app ./helm/devsecops-app --namespace devsecops --create-namespace
 
-# Or apply manifests directly
+# Or apply plain manifests directly (apply the namespace first)
+kubectl apply -f kubernetes/namespace.yaml
 kubectl apply -f kubernetes/deployment.yaml
 kubectl apply -f kubernetes/service.yaml
 kubectl apply -f kubernetes/network-policy.yaml

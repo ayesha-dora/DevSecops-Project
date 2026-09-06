@@ -1,0 +1,29 @@
+# AI Agents - Pinned Dependencies
+# Install with: pip install -r ai-agents/requirements.txt
+#
+# These are the dependencies required by the AI/LLM scripts:
+# - code_reviewer.py: LangChain + Ollama
+# - hf_code_analyzer.py: Hugging Face Transformers
+# - code_indexer.py: LlamaIndex + Ollama + HF Embeddings
+# - mlflow_logger.py: MLflow tracking
+
+# LLM Frameworks
+langchain==0.1.0
+langchain-community==0.0.10
+
+# Local Inference
+ollama==0.1.0
+
+# Hugging Face Integration
+huggingface-hub==0.19.0
+transformers==4.34.1
+
+# Vector Search & Indexing
+llama-index==0.9.0
+llama-index-embeddings-huggingface==0.1.0
+
+# Model Tracking
+mlflow==2.8.1
+
+# Networking
+requests==2.31.0

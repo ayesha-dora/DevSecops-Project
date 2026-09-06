@@ -16,20 +16,44 @@ import time
 
 def log_all_to_mlflow():
     print("📊 MLflow Logger Starting...")
-    print("🌐 MLflow UI: http://localhost:5000")
+    print("🌐 MLflow UI: http://localhost:5000 or see MLFLOW_HOST env var")
 
+    # MLflow must be pre-installed via requirements.txt
     try:
         import mlflow
-    except ImportError:
-        os.system("pip install mlflow -q")
-        import mlflow
+    except ImportError as e:
+        print(f"⚠️ MLflow not available: {e}")
+        print("📝 Please install via: pip install -r ai-agents/requirements.txt")
+        print("⚠️ Skipping MLflow logging - AI runs will still complete via fallback paths")
+        return
 
-    # Connect to MLflow server
+    # Connect to MLflow server with timeout protection
     # Use host.docker.internal when running inside Jenkins container
     mlflow_host = os.environ.get('MLFLOW_HOST', 'host.docker.internal')
     tracking_uri = f"http://{mlflow_host}:5000"
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment("ai-devsecops-pipeline")
+
+    # Get timeout setting (default 10 seconds)
+    timeout_seconds = int(os.environ.get('MLFLOW_CONNECT_TIMEOUT_SECONDS', '10'))
+
+    # Set up timeout handler (Unix-only; timeout is best-effort on other platforms)
+    import signal
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"MLflow connection timeout after {timeout_seconds}s")
+
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout_seconds)
+
+    try:
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment("ai-devsecops-pipeline")
+    except TimeoutError:
+        print(f"⚠️ MLflow connection timed out after {timeout_seconds}s - skipping logging")
+        return
+    except Exception as e:
+        print(f"⚠️ MLflow connection failed: {e} - skipping logging")
+        return
+    finally:
+        signal.alarm(0)  # Cancel alarm
 
     build_number = os.environ.get('BUILD_NUMBER', 'local')
     print(f"🔢 Build: #{build_number}")

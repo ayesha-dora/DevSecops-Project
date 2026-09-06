@@ -17,22 +17,16 @@ import json
 def generate_documentation():
     print("📚 LlamaIndex Documentation Generator Starting...")
 
-    # Install if needed
+    # LlamaIndex must be pre-installed via requirements.txt
     try:
         from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
         from llama_index.llms.ollama import Ollama as LlamaOllama
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-    except ImportError:
-        print("Installing llama-index...")
-        os.system("pip install --break-system-packages llama-index llama-index-llms-ollama llama-index-embeddings-huggingface -q")
-        try:
-            from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
-            from llama_index.llms.ollama import Ollama as LlamaOllama
-            from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-        except Exception as e:
-            print(f"⚠️ Install failed: {e}")
-            generate_static_docs()
-            return
+    except ImportError as e:
+        print(f"⚠️ LlamaIndex not available: {e}")
+        print("📝 Please install via: pip install -r ai-agents/requirements.txt")
+        generate_static_docs()
+        return
 
     # Check app folder exists
     if not os.path.exists("app"):
