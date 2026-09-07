@@ -33,6 +33,10 @@ mlflow.db
 .DS_Store
 Thumbs.db
 
+# Private keys — found Devops-key.pem sitting untracked in the repo root; never let an SSH
+# private key reach git history.
+*.pem
+
 # Docker
 *.tar
 

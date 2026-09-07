@@ -47,6 +47,12 @@ services:
       # too, in case anyone overrides MLFLOW_HOST back to it for a differently-shaped setup.
       - DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME:-}
       - DOCKERHUB_TOKEN=${DOCKERHUB_TOKEN:-}
+      # SonarQube Analysis and Dependency Scan stages read these as plain shell env vars
+      # (${SONAR_HOST_URL}, ${SONAR_TOKEN} in the Jenkinsfile) — previously undefined here, so
+      # both stages silently ran unauthenticated/pointed nowhere even with sonar-scanner installed.
+      - SONAR_HOST_URL=${SONAR_HOST_URL:-}
+      - SONAR_TOKEN=${SONAR_TOKEN:-}
+      - SNYK_TOKEN=${SNYK_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

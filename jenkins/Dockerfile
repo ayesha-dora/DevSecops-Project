@@ -11,11 +11,13 @@ FROM jenkins/jenkins:lts
 USER root
 
 # --- OS packages, Python (python-is-python3 because security/test_policy.sh calls `python`,
-#     not `python3`), and prerequisites for the apt-repo steps below ---
+#     not `python3`), build-essential/rustc/cargo (semgrep's pinned version below needs to build
+#     a Rust extension from source on this base image's architecture), Node/npm (for the Snyk CLI,
+#     which ships as an npm package, below), and prerequisites for the apt-repo steps below ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv python-is-python3 \
-        build-essential rustc cargo \
-        curl unzip jq gnupg lsb-release ca-certificates build-essential rustc cargo \
+        build-essential rustc cargo nodejs npm \
+        curl unzip jq gnupg lsb-release ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Docker CLI. Talks to the host's daemon via the /var/run/docker.sock bind mount
@@ -52,6 +54,22 @@ RUN GITLEAKS_VER=8.18.4 \
     && rm -f /tmp/gitleaks.tgz
 RUN curl -sL -o /usr/local/bin/opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static \
     && chmod +x /usr/local/bin/opa
+
+# --- sonar-scanner CLI, for the "SonarQube Analysis" stage — that stage already has a graceful
+#     `command -v sonar-scanner` skip, but skipping isn't the same as running; this makes the real
+#     scan happen. Version verified downloadable from binaries.sonarsource.com before pinning. ---
+RUN SONAR_SCANNER_VER=6.2.1.4610 \
+    && curl -fsSL -o /tmp/sonar-scanner.zip \
+        "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_SCANNER_VER}-linux-x64.zip" \
+    && unzip -q /tmp/sonar-scanner.zip -d /opt \
+    && mv "/opt/sonar-scanner-${SONAR_SCANNER_VER}-linux-x64" /opt/sonar-scanner \
+    && ln -s /opt/sonar-scanner/bin/sonar-scanner /usr/local/bin/sonar-scanner \
+    && rm -f /tmp/sonar-scanner.zip
+
+# --- Snyk CLI, for the "Dependency Scan" stage. Ships as an npm package (needs the nodejs/npm
+#     installed above) rather than a standalone binary. Version verified on the npm registry
+#     before pinning, same discipline as every other tool in this file. ---
+RUN npm install -g snyk@1.1307.1
 
 # Jenkins' own entrypoint expects to run as the "jenkins" user, not root.
 USER jenkins

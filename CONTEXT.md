@@ -240,6 +240,47 @@ helm install devsecops-app ./helm/devsecops-app --namespace devsecops --create-n
 
 ## Change Log
 
+### 2026-09-08 — Change #13: Make the root Jenkinsfile pipeline actually runnable on the real EC2 Jenkins
+- **Change**: Working directly against the live EC2 instance (Jenkins/SonarQube/Docker/k3s all
+  actually running there — first engagement with real infrastructure to test against, not a
+  sandbox), found and fixed real blockers rather than reviewing by hand:
+  1. **`jenkins/Dockerfile` had no `sonar-scanner` CLI at all** — the "SonarQube Analysis" stage's
+     `command -v sonar-scanner` guard let it skip silently every run instead of actually scanning.
+     Added it (version verified downloadable before pinning, same discipline as every other tool
+     in this file).
+  2. **No Snyk CLI either** — added Node/npm (Snyk ships as an npm package) and `npm install -g
+     snyk@1.1307.1` (version verified on the npm registry first).
+  3. **`docker-compose.yml`'s `jenkins` service never passed `SONAR_HOST_URL`/`SONAR_TOKEN`/
+     `SNYK_TOKEN` through to the container** — only `DOCKERHUB_USERNAME`/`TOKEN` were wired. The
+     Jenkinsfile reads these as plain shell env vars, so both stages ran without credentials even
+     once the CLIs existed. Added the passthrough, matching the existing pattern.
+  4. **A real, likely pipeline-breaking bug**: the pipeline's `environment` block set
+     `DOCKER_HOST=tcp://host.docker.internal:2375` globally — nothing on this host listens on that
+     TCP port (real Docker access is the `/var/run/docker.sock` bind mount every stage already
+     relies on). Because it was set pipeline-wide, this silently broke *every* `docker` command in
+     the file, including `Container Build`'s `docker build` itself, not just the Trivy stage —
+     masked everywhere by `|| true` into empty/missing artifacts instead of a visible failure.
+     Removed it; Trivy's own container now gets the socket mounted directly instead of inheriting
+     a broken `DOCKER_HOST`.
+  5. Fixed a duplicated/malformed apt package line in `jenkins/Dockerfile` (`build-essential rustc
+     cargo` and part of the `curl unzip ...` line were both accidentally listed twice) left over
+     from a prior hand-edit made directly on the VM outside of git.
+  - **Deliberately not done**: a "no Docker Hub/registry needed" real Kubernetes deploy path (k3s
+    is genuinely running on this host). The documented method (`docs/EC2_DEPLOYMENT_GUIDE.md` Part
+    E) is a **host-level** `k3s ctr images import` command — making the containerized Jenkins agent
+    do this itself would mean bind-mounting k3s's raw containerd socket into it and running as
+    root, which is a meaningfully riskier change to bolt onto a live box than the payoff justifies
+    here. Left the existing behavior as-is: honestly skip to the demo manifest with a clear message
+    when `DOCKERHUB_USERNAME`/`TOKEN` aren't set, exactly as Change #12 already made it do.
+- **Reason**: Explicit ask to get "the whole CI/CD pipeline" actually working end-to-end on real
+  infrastructure, not just reviewed statically.
+- **Files**: `jenkins/Dockerfile`, `docker-compose.yml`, `Jenkinsfile`, `CONTEXT.md`
+- **Tests**: YAML-validated `docker-compose.yml`; brace/paren/triple-quote balance checked on the
+  edited `Jenkinsfile` (same method used for every prior Jenkinsfile edit in this log); both new
+  tool versions (`sonar-scanner-cli-6.2.1.4610`, `snyk@1.1307.1`) confirmed downloadable/resolvable
+  before pinning. Full Jenkins build execution against these changes tracked in the next entry.
+- **Result**: See following changelog entry(ies) for actual build results on the live instance.
+
 ### 2026-09-06 — Local Docker Jenkins pipeline
 - Added `jenkins/Jenkinsfile`, `jenkins/deploy-local.sh`, a minimal Secret file
   template and `jenkins/README.md`. Builds the application image, runs its tests,

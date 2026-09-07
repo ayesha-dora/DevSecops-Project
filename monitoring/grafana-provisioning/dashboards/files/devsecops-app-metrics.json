@@ -1,0 +1,197 @@
+{
+  "id": null,
+  "uid": "devsecops-app-metrics",
+  "title": "DevSecOps App - Full Prometheus Metrics",
+  "description": "Every metric family currently scraped by Prometheus from the devsecops-app job (target: devsecops-app:5000/metrics). Generated from a live read-only inspection of prometheus.yml and the raw /metrics output.",
+  "tags": ["devsecops", "prometheus-metrics", "auto-generated"],
+  "timezone": "browser",
+  "schemaVersion": 27,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTP Requests Rate",
+      "id": 1,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total[1m])",
+          "legendFormat": "{{handler}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Request Duration (p50 / p95 / p99)",
+      "id": 2,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Process CPU Usage",
+      "id": 3,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(process_cpu_seconds_total{job=\"devsecops-app\"}[1m])",
+          "legendFormat": "cpu seconds/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Process Memory (RSS vs Virtual)",
+      "id": 4,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=\"devsecops-app\"}",
+          "legendFormat": "resident (RSS)",
+          "refId": "A"
+        },
+        {
+          "expr": "process_virtual_memory_bytes{job=\"devsecops-app\"}",
+          "legendFormat": "virtual",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Open File Descriptors (used vs max)",
+      "id": 5,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "process_open_fds{job=\"devsecops-app\"}",
+          "legendFormat": "open fds",
+          "refId": "A"
+        },
+        {
+          "expr": "process_max_fds{job=\"devsecops-app\"}",
+          "legendFormat": "max fds",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Python GC Collections Rate (by generation)",
+      "id": 6,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(python_gc_collections_total[5m])",
+          "legendFormat": "gen {{generation}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Python GC Objects Collected Rate (by generation)",
+      "id": 7,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(python_gc_objects_collected_total[5m])",
+          "legendFormat": "gen {{generation}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Python GC Uncollectable Objects",
+      "id": 8,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "python_gc_objects_uncollectable_total",
+          "legendFormat": "gen {{generation}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {}
+    },
+    {
+      "type": "stat",
+      "title": "Process Uptime",
+      "id": 9,
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 32 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "time() - process_start_time_seconds{job=\"devsecops-app\"}",
+          "legendFormat": "uptime",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Python Runtime Version",
+      "id": 10,
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 32 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "python_info",
+          "legendFormat": "{{version}} ({{implementation}})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "graphMode": "none", "colorMode": "none", "textMode": "name" }
+    }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "10s"
+}

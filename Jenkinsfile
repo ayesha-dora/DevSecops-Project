@@ -10,7 +10,11 @@ pipeline {
         SONAR_HOST  = "${env.SONAR_HOST_URL ?: 'http://sonarqube:9000'}"
         APP_PORT    = "5001"
         PATH        = "/var/jenkins_home/.local/bin:${env.PATH}"
-        DOCKER_HOST = "tcp://host.docker.internal:2375"
+        // Was DOCKER_HOST=tcp://host.docker.internal:2375 — nothing listens there on this host, and
+        // because this was a pipeline-wide env var, it silently broke every "docker" command in this
+        // file, not just Trivy's (Container Build's `docker build` included) — masked everywhere by
+        // `|| true`. Real docker access here is the mounted /var/run/docker.sock (docker's own
+        // default), so this var should simply not be set.
         ENFORCE_SECURITY = "${params.ENFORCE_SECURITY}"
     }
 
@@ -184,7 +188,12 @@ pipeline {
                 echo 'Running Trivy container scan...'
                 sh '''
                     mkdir -p reports || true
-                    docker run --rm -e DOCKER_HOST=${DOCKER_HOST} -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --format json --severity HIGH,CRITICAL ${APP_IMAGE} > reports/trivy-report.json || true
+                    # Was `-e DOCKER_HOST=${DOCKER_HOST}` (tcp://host.docker.internal:2375) — nothing
+                    # listens on that TCP port on this host (real docker access here is the mounted
+                    # /var/run/docker.sock, same as every other stage), so the trivy container could
+                    # never actually connect to inspect ${APP_IMAGE} — masked by `|| true` into a
+                    # silently-empty report. Mount the real socket instead.
+                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --format json --severity HIGH,CRITICAL ${APP_IMAGE} > reports/trivy-report.json || true
                 '''
             }
         }
