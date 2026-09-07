@@ -30,7 +30,14 @@ LC_ALL=C awk '
     exit 1
 }
 
+# Port 5001 is the existing Compose application; take over that exact target.
+if ((10#$APP_PORT == 5001)); then
+    APP_CONTAINER=devsecops-app
+    APP_VOLUME=devsecops-app-data
+fi
 backup="${APP_CONTAINER}-previous"
+adopt_compose=false
+network_args=()
 docker image inspect "$APP_IMAGE" >/dev/null
 if docker container inspect "$backup" >/dev/null 2>&1; then
     echo "Container $backup exists from an interrupted deployment. Restore or remove it before retrying." >&2
@@ -41,7 +48,17 @@ had_previous=false
 was_running=false
 if docker container inspect "$APP_CONTAINER" >/dev/null 2>&1; then
     owner=$(docker inspect -f '{{index .Config.Labels "devsecops.local-deploy"}}' "$APP_CONTAINER")
-    [[ "$owner" == 'true' ]] || { echo 'Target container is not managed by this pipeline.' >&2; exit 1; }
+    if [[ "$owner" != 'true' ]]; then
+        service=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$APP_CONTAINER")
+        [[ "$APP_CONTAINER" == devsecops-app && "$service" == devsecops-app ]] || {
+            echo 'Target container is not managed by this pipeline or the expected Compose app.' >&2; exit 1;
+        }
+        adopt_compose=true
+    fi
+    mapfile -t app_networks < <(docker inspect -f '{{range $name, $config := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$APP_CONTAINER")
+    for network in "${app_networks[@]}"; do
+        [[ -z "$network" ]] || network_args+=(--network "$network")
+    done
     had_previous=true
     was_running=$(docker inspect -f '{{.State.Running}}' "$APP_CONTAINER")
 fi
@@ -73,8 +90,17 @@ if "$had_previous"; then
     previous_renamed=true
     docker stop --time 30 "$backup" >/dev/null
 fi
+if "$adopt_compose"; then
+    # Copy the stopped SQLite database before replacing its writable container layer.
+    # A copy failure aborts the takeover and restores the original container.
+    docker cp "$backup:/tmp/users.db" - | docker run --rm -i --network none --user 0:0 \
+        --volume "$APP_VOLUME:/data" "$APP_IMAGE" tar -xf - -C /data
+    docker run --rm --network none --user 0:0 --volume "$APP_VOLUME:/data" \
+        "$APP_IMAGE" chown -R 10001:10001 /data
+fi
 replacement_started=true
 docker run -d --name "$APP_CONTAINER" \
+    "${network_args[@]}" \
     --label devsecops.local-deploy=true \
     --restart unless-stopped --read-only --cap-drop ALL \
     --security-opt no-new-privileges:true \

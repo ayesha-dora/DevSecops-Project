@@ -2,7 +2,7 @@
 
 Use `jenkins/Jenkinsfile` as the job's **Script Path**. It builds the existing
 `app/Dockerfile`, runs the app tests inside that image, and deploys to the Docker
-daemon on the Jenkins agent machine. Default URL: `http://localhost:5002/dashboard`
+daemon on the Jenkins agent machine. Default URL: `http://localhost:5001/dashboard`
 (use the Docker host's IP if accessing from another machine).
 
 ## Jenkins setup
@@ -55,9 +55,17 @@ workflow; this local pipeline covers build, tests, deployment and smoke checks.
 
 ## Deployment behavior
 
-- Container: `devsecops-local-app`; persistent SQLite volume: `devsecops-local-data`.
-- Port `5002` avoids the existing Compose app on `5001`. Choose another free port
-  in job parameters if necessary. The app is published on the Docker host interfaces.
+- Default port `5001` replaces `devsecops-app`, using persistent volume
+  `devsecops-app-data`. On the first takeover, the expected Compose app is stopped
+  and its `/tmp/users.db` is copied into that volume. Copy failure restores the old
+  container. Existing Docker networks are preserved for monitoring and service DNS.
+- Subsequent builds replace the same container and reuse its database volume.
+  Select `APP_PORT=5001` explicitly if Jenkins still shows the old `5002` default.
+- Port `5002` continues to use the separate `devsecops-local-app` container and
+  `devsecops-local-data` volume. Other occupied ports are not automatically cleared.
+- After takeover, manage the app through Jenkins; recreating `devsecops-app` with
+  Compose can conflict with or overwrite this deployment. Other Compose services
+  can still be managed individually. The app is published on Docker host interfaces.
 - Tests or build failures stop deployment. The previous container is kept during
   replacement and restored if startup or smoke checks fail. There is a brief outage
   while replacing it. Rollback restores the container, not database contents; this
@@ -71,8 +79,7 @@ workflow; this local pipeline covers build, tests, deployment and smoke checks.
   the database volume. Old build images are retained for manual housekeeping.
 
 To use the app API, send your key as the `X-API-Key` header for `POST /users`.
-The separate Compose app and its database/monitoring remain separate from this
-deployment.
+The optional port-5002 deployment stays separate from the port-5001 application.
 
 ## Verification performed
 
@@ -81,3 +88,6 @@ deployment script passed a first deployment, replacement deployment, and deliber
 occupied-port failure with restoration of the previous running container. Bash
 syntax and whitespace checks passed. A live Jenkins job has not been run; configure
 the credentials and SCM job above before the first build.
+
+Deployment control-flow checks: `python3 jenkins/tests/test_deploy.py` (mock Docker;
+checks Compose takeover, repeat deployment, port 5002, rollback, and ownership refusal).

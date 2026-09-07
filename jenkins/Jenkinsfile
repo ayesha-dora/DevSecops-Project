@@ -9,7 +9,7 @@ pipeline {
     }
     parameters {
         string(name: 'ENV_CREDENTIALS_ID', defaultValue: 'devsecops-local-env', description: 'Jenkins Secret file containing APP_API_KEY and LOG_LEVEL')
-        string(name: 'APP_PORT', defaultValue: '5002', description: 'Docker host port for the app (5001 is used by the Compose app)')
+        string(name: 'APP_PORT', defaultValue: '5001', description: '5001 replaces the existing devsecops-app; 5002 uses the separate local app')
     }
     environment {
         DOCKER_HOST = 'unix:///var/run/docker.sock'
