@@ -27,8 +27,10 @@ daemon on the Jenkins agent machine. Default URL: `http://localhost:5002/dashboa
    for the `timestamps()` option. Use one job for this fixed deployment target;
    do not run multiple jobs/agents against the same container and volume.
 3. Copy `jenkins/app.env.example` to a file outside the repository. Generate a key
-   with `openssl rand -hex 32` and replace `CHANGE_ME`. Use Unix line endings and
-   no quotes, `export`, or spaces around `=`:
+   with `openssl rand -hex 32` and replace `CHANGE_ME`. Save as UTF-8 (`.env` or
+   `.txt` is fine); Unix LF, Windows CRLF, and UTF-8 BOM are supported. Spaces
+   around `=` and at line edges are trimmed. Do not include quotes, `export`,
+   or Markdown backticks:
 
    ```dotenv
    APP_API_KEY=replace_with_your_generated_64_character_hex_key

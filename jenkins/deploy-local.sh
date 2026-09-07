@@ -6,19 +6,27 @@ set +x
 [[ "$APP_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$APP_PORT >= 1 && 10#$APP_PORT <= 65535)) || {
     echo 'APP_PORT must be between 1 and 65535.' >&2; exit 1;
 }
-# Validate without exposing the API key. Reject extra Docker/app settings.
-awk '
+# Normalize uploaded text without changing the Jenkins credential or exposing its key.
+normalized_env=$(mktemp)
+cleanup_env() { rm -f -- "$normalized_env"; }
+trap cleanup_env EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+LC_ALL=C awk '
+    NR == 1 { sub(/^\357\273\277/, "") }
+    { sub(/\r$/, ""); sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "") }
     /^[[:space:]]*(#|$)/ { next }
+    { sub(/[ \t]*=[ \t]*/, "=") }
     /^APP_API_KEY=/ {
         key=substr($0,13); count++
         if (length(key)<32 || key ~ /CHANGE_ME|[[:space:]"\047]/) bad=1
-        next
+        print; next
     }
-    /^LOG_LEVEL=(DEBUG|INFO|WARNING|ERROR|CRITICAL)$/ { next }
+    /^LOG_LEVEL=(DEBUG|INFO|WARNING|ERROR|CRITICAL)$/ { print; next }
     { bad=1 }
     END { if (count!=1 || bad) exit 1 }
-' "$APP_ENV_FILE" || {
-    echo 'Invalid env file: require one APP_API_KEY (32+ characters) and optional valid LOG_LEVEL. Use the supplied template and Unix line endings.' >&2
+' "$APP_ENV_FILE" > "$normalized_env" || {
+    echo 'Invalid env file: expected APP_API_KEY=<32+ characters> and optional LOG_LEVEL=INFO (or DEBUG/WARNING/ERROR/CRITICAL). Remove quotes, Markdown backticks, duplicate keys and other settings. Save as UTF-8; Windows CRLF and UTF-8 BOM are supported.' >&2
     exit 1
 }
 
@@ -46,6 +54,7 @@ previous_renamed=false
 rollback() {
     rc=$?
     trap - EXIT INT TERM
+    cleanup_env
     if ((rc != 0)); then
         echo 'Deployment failed; restoring previous container if present.' >&2
         if "$replacement_started"; then docker rm -f "$APP_CONTAINER" >/dev/null || true; fi
@@ -70,7 +79,7 @@ docker run -d --name "$APP_CONTAINER" \
     --restart unless-stopped --read-only --cap-drop ALL \
     --security-opt no-new-privileges:true \
     --tmpfs /tmp:rw,nosuid,nodev,size=64m \
-    --env-file "$APP_ENV_FILE" --env APP_DB=/data/users.db \
+    --env-file "$normalized_env" --env APP_DB=/data/users.db \
     --volume "$APP_VOLUME:/data" --publish "${APP_PORT}:5000" \
     --health-cmd 'python -c "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:5000/health\", timeout=3)"' \
     --health-interval 5s --health-timeout 4s --health-retries 6 \
@@ -93,5 +102,6 @@ for path in ("/health", "/dashboard", "/users", "/metrics"):
 print("Application smoke checks passed")
 '
 trap - EXIT INT TERM
+cleanup_env
 if "$previous_renamed"; then docker rm "$backup" >/dev/null; fi
 echo "Deployment ready on Docker host port $APP_PORT; database volume: $APP_VOLUME"
